@@ -14,7 +14,7 @@ export default function LandingPage() {
                     <span style={{ fontSize: '1.5rem', fontWeight: 700, color: '#0f172a', fontFamily: 'Outfit' }}>Audit Pack</span>
                 </div>
                 <div style={{ display: 'flex', gap: '2rem', alignItems: 'center' }}>
-                    <Link to="/login" className="btn-secondary" style={{ border: 'none' }}>Sign In</Link>
+                    <Link to="/login" className="btn-primary" style={{ border: 'none' }}>Sign In</Link>
                     <Link to="/login" className="btn-primary">Get Started</Link>
                 </div>
             </nav>
@@ -50,7 +50,7 @@ export default function LandingPage() {
                         }}>for Malaysian Businesses</span>
                     </h1>
                     <p style={{ fontSize: '1.25rem', color: '#64748b', maxWidth: '800px', margin: '0 auto 3rem', lineHeight: 1.6 }}>
-                        The all-in-one internal approval system that uses GPT-4o-mini to auto-validate requests, verify documentation, and ensures your team submits perfect audits every time.
+                        The all-in-one internal approval system that uses AI to auto-validate requests, verify documentation, and ensures your team submits perfect audits every time.
                     </p>
                     <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
                         <Link to="/login" className="btn-primary" style={{ padding: '16px 40px', fontSize: '1.125rem' }}>
