@@ -15,7 +15,6 @@ export default function LandingPage() {
                 </div>
                 <div style={{ display: 'flex', gap: '2rem', alignItems: 'center' }}>
                     <Link to="/login" className="btn-primary" style={{ border: 'none' }}>Sign In</Link>
-                    <Link to="/login" className="btn-primary">Get Started</Link>
                 </div>
             </nav>
 
