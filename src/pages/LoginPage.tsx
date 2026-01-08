@@ -103,7 +103,7 @@ export default function LoginPage() {
                     </motion.div>
                     <h1 style={{ fontSize: '2rem', fontWeight: 850, color: '#0f172a', margin: '0 0 0.5rem 0', letterSpacing: '-0.03em', fontFamily: 'Outfit' }}>Audit Pack</h1>
                     <p style={{ color: '#64748b', fontSize: '1.1rem', fontWeight: 500 }}>
-                        {isSignUp ? 'Create your professional account' : 'Enterprise Compliance Portal'}
+                        {isSignUp ? 'Create your professional account' : 'Enterprise Portal'}
                     </p>
                 </div>
 
