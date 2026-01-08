@@ -13,10 +13,6 @@ export default function LandingPage() {
                     </div>
                     <span style={{ fontSize: '1.5rem', fontWeight: 700, color: '#0f172a', fontFamily: 'Outfit' }}>Audit Pack</span>
                 </div>
-                <div style={{ display: 'flex', gap: '2rem', alignItems: 'center' }}>
-                    <Link to="/login" className="btn-secondary" style={{ border: 'none' }}>Sign In</Link>
-                    <Link to="/login" className="btn-primary">Get Started</Link>
-                </div>
             </nav>
 
             {/* Hero Section */}
@@ -54,7 +50,7 @@ export default function LandingPage() {
                     </p>
                     <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
                         <Link to="/login" className="btn-primary" style={{ padding: '16px 40px', fontSize: '1.125rem' }}>
-                            Start Free Trial <ArrowRight size={20} />
+                            Get Started <ArrowRight size={20} />
                         </Link>
                     </div>
                 </motion.div>
