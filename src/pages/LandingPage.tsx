@@ -13,6 +13,9 @@ export default function LandingPage() {
                     </div>
                     <span style={{ fontSize: '1.5rem', fontWeight: 700, color: '#0f172a', fontFamily: 'Outfit' }}>Audit Pack</span>
                 </div>
+                <div style={{ display: 'flex', gap: '2rem', alignItems: 'center' }}>
+                    <Link to="/login" className="btn-secondary" style={{ border: 'none' }}>Sign In</Link>
+                </div>
             </nav>
 
             {/* Hero Section */}
