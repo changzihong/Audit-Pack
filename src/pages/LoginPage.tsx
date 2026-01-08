@@ -286,7 +286,7 @@ export default function LoginPage() {
                     </button>
 
                     <p style={{ textAlign: 'center', margin: '1rem 0 0 0', color: '#64748b', fontWeight: 500 }}>
-                        {isSignUp ? 'Already authorized?' : "Don't have an enterprise account?"}{' '}
+                        {isSignUp ? 'Already authorized?' : "Don't have an account?"}{' '}
                         <button
                             type="button"
                             onClick={() => setIsSignUp(!isSignUp)}
