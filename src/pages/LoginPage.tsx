@@ -292,7 +292,7 @@ export default function LoginPage() {
                             onClick={() => setIsSignUp(!isSignUp)}
                             style={{ background: 'none', border: 'none', color: 'var(--primary)', fontWeight: 750, cursor: 'pointer', textDecoration: 'underline' }}
                         >
-                            {isSignUp ? 'Login secure portal' : 'Sign up corporate'}
+                            {isSignUp ? 'Login secure portal' : 'Sign up '}
                         </button>
                     </p>
                 </form>
