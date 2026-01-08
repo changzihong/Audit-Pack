@@ -9,6 +9,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 export default function LoginPage() {
     const [isSignUp, setIsSignUp] = useState(false);
+    const [isForgotPassword, setIsForgotPassword] = useState(false);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
@@ -18,6 +19,7 @@ export default function LoginPage() {
     const [agreed, setAgreed] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [success, setSuccess] = useState<string | null>(null);
     const navigate = useNavigate();
 
     const departments = [
@@ -25,10 +27,38 @@ export default function LoginPage() {
         'Operations', 'Sales & Marketing', 'IT Support', 'General'
     ];
 
+    const handleForgotPassword = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setLoading(true);
+        setError(null);
+        setSuccess(null);
+
+        try {
+            if (!email) throw new Error("Please enter your email address");
+
+            const { error } = await supabase.auth.resetPasswordForEmail(email, {
+                redirectTo: `${window.location.origin}/reset-password`,
+            });
+
+            if (error) throw error;
+
+            setSuccess('Password reset email sent! Please check your inbox.');
+            setTimeout(() => {
+                setIsForgotPassword(false);
+                setSuccess(null);
+            }, 3000);
+        } catch (err: any) {
+            setError(err.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const handleAuth = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
         setError(null);
+        setSuccess(null);
 
         try {
             if (isSignUp) {
@@ -103,7 +133,7 @@ export default function LoginPage() {
                     </motion.div>
                     <h1 style={{ fontSize: '2rem', fontWeight: 850, color: '#0f172a', margin: '0 0 0.5rem 0', letterSpacing: '-0.03em', fontFamily: 'Outfit' }}>Audit Pack</h1>
                     <p style={{ color: '#64748b', fontSize: '1.1rem', fontWeight: 500 }}>
-                        {isSignUp ? 'Create your professional account' : 'Enterprise Compliance Portal'}
+                        {isForgotPassword ? 'Reset your password' : isSignUp ? 'Create your professional account' : 'Enterprise Compliance Portal'}
                     </p>
                 </div>
 
@@ -131,10 +161,33 @@ export default function LoginPage() {
                             {error}
                         </motion.div>
                     )}
+                    {success && (
+                        <motion.div
+                            initial={{ opacity: 0, y: -10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0 }}
+                            style={{
+                                background: '#f0fdf4',
+                                color: '#16a34a',
+                                padding: '1rem',
+                                borderRadius: '14px',
+                                marginBottom: '2rem',
+                                fontSize: '0.9rem',
+                                fontWeight: 600,
+                                border: '1px solid #bbf7d0',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '10px'
+                            }}
+                        >
+                            <CheckCircle2 size={18} />
+                            {success}
+                        </motion.div>
+                    )}
                 </AnimatePresence>
 
-                <form onSubmit={handleAuth} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-                    {isSignUp && (
+                <form onSubmit={isForgotPassword ? handleForgotPassword : handleAuth} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                    {isSignUp && !isForgotPassword && (
                         <div className="input-group" style={{ marginBottom: 0 }}>
                             <label className="input-label">Full Name</label>
                             <div style={{ position: 'relative' }}>
@@ -166,10 +219,15 @@ export default function LoginPage() {
                                 style={{ paddingLeft: '48px' }}
                             />
                         </div>
+                        {isForgotPassword && (
+                            <p style={{ margin: '0.75rem 0 0 0', fontSize: '0.85rem', color: '#64748b', lineHeight: 1.5 }}>
+                                Enter your email address and we'll send you a link to reset your password.
+                            </p>
+                        )}
                     </div>
 
                     <AnimatePresence mode="popLayout">
-                        {isSignUp && (
+                        {isSignUp && !isForgotPassword && (
                             <motion.div
                                 initial={{ opacity: 0, height: 0 }}
                                 animate={{ opacity: 1, height: 'auto' }}
@@ -216,46 +274,67 @@ export default function LoginPage() {
                         )}
                     </AnimatePresence>
 
-                    <div className="input-group" style={{ marginBottom: 0 }}>
-                        <label className="input-label">Security Password</label>
-                        <div style={{ position: 'relative' }}>
-                            <Lock size={18} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-                            <input
-                                type="password"
-                                className="input-field"
-                                placeholder="••••••••"
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                                required
-                                style={{ paddingLeft: '48px' }}
-                            />
-                        </div>
-                    </div>
-
-                    {isSignUp && (
-                        <div className="input-group" style={{ marginBottom: 0 }}>
-                            <label className="input-label">Confirm Password</label>
-                            <div style={{ position: 'relative' }}>
-                                <Lock size={18} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-                                <input
-                                    type="password"
-                                    className="input-field"
-                                    placeholder="••••••••"
-                                    value={confirmPassword}
-                                    onChange={(e) => setConfirmPassword(e.target.value)}
-                                    required
-                                    style={{ paddingLeft: '48px' }}
-                                />
+                    {!isForgotPassword && (
+                        <>
+                            <div className="input-group" style={{ marginBottom: 0 }}>
+                                <label className="input-label">Security Password</label>
+                                <div style={{ position: 'relative' }}>
+                                    <Lock size={18} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                                    <input
+                                        type="password"
+                                        className="input-field"
+                                        placeholder="••••••••"
+                                        value={password}
+                                        onChange={(e) => setPassword(e.target.value)}
+                                        required
+                                        style={{ paddingLeft: '48px' }}
+                                    />
+                                </div>
                             </div>
-                        </div>
+
+                            {isSignUp && (
+                                <div className="input-group" style={{ marginBottom: 0 }}>
+                                    <label className="input-label">Confirm Password</label>
+                                    <div style={{ position: 'relative' }}>
+                                        <Lock size={18} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                                        <input
+                                            type="password"
+                                            className="input-field"
+                                            placeholder="••••••••"
+                                            value={confirmPassword}
+                                            onChange={(e) => setConfirmPassword(e.target.value)}
+                                            required
+                                            style={{ paddingLeft: '48px' }}
+                                        />
+                                    </div>
+                                </div>
+                            )}
+                        </>
                     )}
 
-                    {!isSignUp ? (
+                    {!isSignUp && !isForgotPassword ? (
                         <button
                             type="button"
+                            onClick={() => {
+                                setIsForgotPassword(true);
+                                setError(null);
+                                setSuccess(null);
+                            }}
                             style={{ background: 'none', border: 'none', color: 'var(--primary)', fontWeight: 700, fontSize: '0.85rem', width: 'fit-content', cursor: 'pointer', padding: 0 }}
                         >
                             Forgot password?
+                        </button>
+                    ) : isForgotPassword ? (
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setIsForgotPassword(false);
+                                setError(null);
+                                setSuccess(null);
+                            }}
+                            style={{ background: 'none', border: 'none', color: 'var(--primary)', fontWeight: 700, fontSize: '0.85rem', width: 'fit-content', cursor: 'pointer', padding: 0 }}
+                        >
+                            Back to login
                         </button>
                     ) : (
                         <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', marginTop: '0.5rem' }}>
@@ -279,22 +358,28 @@ export default function LoginPage() {
                     >
                         {loading ? <Loader2 size={24} className="animate-spin" /> : (
                             <>
-                                {isSignUp ? 'Initiate Account Creation' : 'Login'}
+                                {isForgotPassword ? 'Send Reset Link' : isSignUp ? 'Initiate Account Creation' : 'Login'}
                                 <ArrowRight size={20} />
                             </>
                         )}
                     </button>
 
-                    <p style={{ textAlign: 'center', margin: '1rem 0 0 0', color: '#64748b', fontWeight: 500 }}>
-                        {isSignUp ? 'Already authorized?' : "Don't have an enterprise account?"}{' '}
-                        <button
-                            type="button"
-                            onClick={() => setIsSignUp(!isSignUp)}
-                            style={{ background: 'none', border: 'none', color: 'var(--primary)', fontWeight: 750, cursor: 'pointer', textDecoration: 'underline' }}
-                        >
-                            {isSignUp ? 'Login secure portal' : 'Sign up corporate'}
-                        </button>
-                    </p>
+                    {!isForgotPassword && (
+                        <p style={{ textAlign: 'center', margin: '1rem 0 0 0', color: '#64748b', fontWeight: 500 }}>
+                            {isSignUp ? 'Already authorized?' : "Don't have an enterprise account?"}{' '}
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setIsSignUp(!isSignUp);
+                                    setError(null);
+                                    setSuccess(null);
+                                }}
+                                style={{ background: 'none', border: 'none', color: 'var(--primary)', fontWeight: 750, cursor: 'pointer', textDecoration: 'underline' }}
+                            >
+                                {isSignUp ? 'Login secure portal' : 'Sign up corporate'}
+                            </button>
+                        </p>
+                    )}
                 </form>
             </motion.div>
         </div>
