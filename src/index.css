@@ -78,6 +78,7 @@ a {
   align-items: center;
   gap: 8px;
   box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
+  justify-content: center
 }
 
 .btn-primary:hover {
