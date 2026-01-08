@@ -153,7 +153,7 @@ export default function LoginPage() {
                     )}
 
                     <div className="input-group" style={{ marginBottom: 0 }}>
-                        <label className="input-label">Corporate Email</label>
+                        <label className="input-label"> Email</label>
                         <div style={{ position: 'relative' }}>
                             <Mail size={18} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
                             <input
