@@ -15,6 +15,7 @@ export default function LandingPage() {
                 </div>
                 <div style={{ display: 'flex', gap: '2rem', alignItems: 'center' }}>
                     <Link to="/login" className="btn-secondary" style={{ border: 'none' }}>Sign In</Link>
+                    <Link to="/login" className="btn-primary">Get Started</Link>
                 </div>
             </nav>
 
@@ -53,7 +54,7 @@ export default function LandingPage() {
                     </p>
                     <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
                         <Link to="/login" className="btn-primary" style={{ padding: '16px 40px', fontSize: '1.125rem' }}>
-                            Get Started <ArrowRight size={20} />
+                            Start Free Trial <ArrowRight size={20} />
                         </Link>
                     </div>
                 </motion.div>

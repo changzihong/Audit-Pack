@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import {
     Plus, Clock, CheckCircle2, AlertTriangle, ArrowUpRight,
-    FileText, BarChart3, TrendingUp, Calendar as CalendarIcon
+    Search, Filter, MoreVertical, FileText, Info, BarChart3, TrendingUp, Calendar as CalendarIcon, XCircle
 } from 'lucide-react';
 import { AuditRequest, Profile } from '../types';
 import { motion } from 'framer-motion';
@@ -239,6 +239,12 @@ export default function Dashboard() {
                             <BarChart3 size={20} color="var(--primary)" />
                         </div>
                         <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#1e293b', margin: 0 }}>Active Audit Queue</h2>
+                    </div>
+                    <div style={{ display: 'flex', gap: '1rem' }}>
+                        <div style={{ position: 'relative' }}>
+                            <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                            <input type="text" placeholder="Filter requests..." style={{ padding: '10px 12px 10px 36px', borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '0.9rem', outline: 'none', width: '240px' }} />
+                        </div>
                     </div>
                 </div>
 

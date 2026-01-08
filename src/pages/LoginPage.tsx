@@ -103,7 +103,7 @@ export default function LoginPage() {
                     </motion.div>
                     <h1 style={{ fontSize: '2rem', fontWeight: 850, color: '#0f172a', margin: '0 0 0.5rem 0', letterSpacing: '-0.03em', fontFamily: 'Outfit' }}>Audit Pack</h1>
                     <p style={{ color: '#64748b', fontSize: '1.1rem', fontWeight: 500 }}>
-                        {isSignUp ? 'Create your professional account' : 'Enterprise Portal'}
+                        {isSignUp ? 'Create your professional account' : 'Enterprise Compliance Portal'}
                     </p>
                 </div>
 
@@ -153,7 +153,7 @@ export default function LoginPage() {
                     )}
 
                     <div className="input-group" style={{ marginBottom: 0 }}>
-                        <label className="input-label"> Email</label>
+                        <label className="input-label">Corporate Email</label>
                         <div style={{ position: 'relative' }}>
                             <Mail size={18} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
                             <input
@@ -286,13 +286,13 @@ export default function LoginPage() {
                     </button>
 
                     <p style={{ textAlign: 'center', margin: '1rem 0 0 0', color: '#64748b', fontWeight: 500 }}>
-                        {isSignUp ? 'Already authorized?' : "Don't have an account?"}{' '}
+                        {isSignUp ? 'Already authorized?' : "Don't have an enterprise account?"}{' '}
                         <button
                             type="button"
                             onClick={() => setIsSignUp(!isSignUp)}
                             style={{ background: 'none', border: 'none', color: 'var(--primary)', fontWeight: 750, cursor: 'pointer', textDecoration: 'underline' }}
                         >
-                            {isSignUp ? 'Login secure portal' : 'Sign up '}
+                            {isSignUp ? 'Login secure portal' : 'Sign up corporate'}
                         </button>
                     </p>
                 </form>
