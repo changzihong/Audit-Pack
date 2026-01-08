@@ -54,7 +54,7 @@ export default function LandingPage() {
                     </p>
                     <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
                         <Link to="/login" className="btn-primary" style={{ padding: '16px 40px', fontSize: '1.125rem' }}>
-                            Start Free Trial <ArrowRight size={20} />
+                            Get Stared <ArrowRight size={20} />
                         </Link>
                     </div>
                 </motion.div>
