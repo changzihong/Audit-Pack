@@ -36,10 +36,21 @@ CREATE TABLE comments (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Create Notifications table
+CREATE TABLE notifications (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  content TEXT NOT NULL,
+  is_read BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- Enable RLS
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE comments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
 
 -- Profiles Policies
 CREATE POLICY "Public profiles are viewable by everyone" ON profiles
@@ -64,11 +75,19 @@ CREATE POLICY "Managers can view department requests" ON requests
 CREATE POLICY "Employees can insert own requests" ON requests
   FOR INSERT WITH CHECK (auth.uid() = employee_id);
 
-CREATE POLICY "Allowed users can update requests" ON requests
-  FOR UPDATE USING (
     auth.uid() = employee_id OR 
     EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (role = 'manager' OR role = 'admin'))
   );
+
+-- Notifications Policies
+CREATE POLICY "Users can view own notifications" ON notifications
+  FOR SELECT USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can update own notifications" ON notifications
+  FOR UPDATE USING (auth.uid() = user_id);
+
+CREATE POLICY "System/Admins can insert notifications" ON notifications
+  FOR INSERT WITH CHECK (true); -- Ideally stricter, but for now allows any auth user to trigger notifs
 
 -- Trigger for profile creation on signup
 CREATE OR REPLACE FUNCTION public.handle_new_user()

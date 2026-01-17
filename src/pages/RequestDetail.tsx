@@ -1,17 +1,21 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import {
     ArrowLeft, Clock, CheckCircle2, XCircle, MessageSquare,
     FileText, History, User, Check, X, AlertTriangle, Send, Loader2, Info, Sparkles, PartyPopper,
-    Trash2, RefreshCcw, Edit3, Download
+    Trash2, Edit3, Download, ShieldCheck, Building, Wallet, Calendar
 } from 'lucide-react';
-import { AuditRequest, Profile, Comment } from '../types';
+import { AuditRequest, Profile } from '../types';
 import { motion, AnimatePresence } from 'framer-motion';
+import { sendEmailNotification } from '../lib/notifications';
+// @ts-ignore
+import html2pdf from 'html2pdf.js';
 
 export default function RequestDetail() {
     const { id } = useParams();
     const navigate = useNavigate();
+    const reportRef = useRef<HTMLDivElement>(null);
     const [request, setRequest] = useState<(AuditRequest & { profiles?: { full_name: string } }) | null>(null);
     const [profile, setProfile] = useState<Profile | null>(null);
     const [comments, setComments] = useState<any[]>([]);
@@ -20,6 +24,9 @@ export default function RequestDetail() {
     const [posting, setPosting] = useState(false);
     const [actionLoading, setActionLoading] = useState<string | null>(null);
     const [showSuccess, setShowSuccess] = useState<string | null>(null);
+    const [unauthorized, setUnauthorized] = useState(false);
+    const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
     useEffect(() => {
         fetchData();
@@ -43,16 +50,40 @@ export default function RequestDetail() {
 
     const fetchData = async () => {
         setLoading(true);
-        await Promise.all([fetchRequestOnly(), fetchComments(), fetchProfile()]);
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+            const { data: profileData } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+            setProfile(profileData);
+            if (profileData) {
+                await fetchRequestWithAccess(profileData);
+            }
+        }
+        await fetchComments();
         setLoading(false);
     };
 
-    const fetchProfile = async () => {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-            const { data } = await supabase.from('profiles').select('*').eq('id', user.id).single();
-            setProfile(data);
+    const fetchRequestWithAccess = async (userProfile: Profile) => {
+        const { data, error } = await supabase
+            .from('requests')
+            .select('*, profiles:employee_id(full_name)')
+            .eq('id', id)
+            .single();
+
+        if (error || !data) {
+            setRequest(null);
+            return;
         }
+
+        const canView = userProfile.role === 'admin' ||
+            (userProfile.role === 'manager' && userProfile.department === data.department) ||
+            (userProfile.id === data.employee_id);
+
+        if (!canView) {
+            setUnauthorized(true);
+            return;
+        }
+
+        setRequest(data);
     };
 
     const fetchRequestOnly = async () => {
@@ -88,35 +119,19 @@ export default function RequestDetail() {
                 .eq('id', id);
 
             if (error) throw error;
+            await fetchRequestOnly();
+            await handlePostComment(`Status updated to ${newStatus.replace('_', ' ')}`, true);
 
-            // Status updates are now exclusively handled by notifications (Bell Icon)
+            // Send Email Notification
+            if (request) {
+                await sendEmailNotification(request.employee_id, newStatus, request.title);
+            }
+
             setShowSuccess(newStatus);
             setTimeout(() => setShowSuccess(null), 3000);
-
         } catch (err) {
             console.error('Error updating status:', err);
-        } finally {
-            setActionLoading(null);
-        }
-    };
-
-    const handleDownloadReport = () => {
-        window.print();
-    };
-
-    const handleDelete = async () => {
-        if (!window.confirm('Are you sure you want to permanently delete this request? This action cannot be undone.')) return;
-
-        setActionLoading('deleting');
-        try {
-            await supabase.from('comments').delete().eq('request_id', id);
-            const { error } = await supabase.from('requests').delete().eq('id', id);
-
-            if (error) throw error;
-            navigate('/dashboard');
-        } catch (err) {
-            console.error('Error deleting request:', err);
-            alert('Could not delete request.');
+            alert('Failed to update status.');
         } finally {
             setActionLoading(null);
         }
@@ -125,17 +140,14 @@ export default function RequestDetail() {
     const handlePostComment = async (text?: string, isSystem = false) => {
         const content = text || commentText;
         if (!content.trim()) return;
-
         if (!text) setPosting(true);
         try {
             const { data: { user } } = await supabase.auth.getUser();
-            const { error } = await supabase.from('comments').insert({
+            await supabase.from('comments').insert({
                 request_id: id,
                 user_id: user?.id,
                 content: content.trim()
             });
-
-            if (error) throw error;
             if (!text) setCommentText('');
             fetchComments();
         } catch (err) {
@@ -145,25 +157,43 @@ export default function RequestDetail() {
         }
     };
 
-    const getStatusBadge = (status: string) => {
-        const styles: Record<string, any> = {
-            pending: { bg: '#fef3c7', text: '#d97706', icon: Clock },
-            approved: { bg: '#d1fae5', text: '#059669', icon: CheckCircle2 },
-            rejected: { bg: '#fee2e2', text: '#dc2626', icon: XCircle },
-            changes_requested: { bg: '#dbeafe', text: '#2563eb', icon: AlertTriangle },
+    const handleDelete = async () => {
+        // ACTUAL DELETION LOGIC (Triggered by Modal)
+        setActionLoading('deleting');
+        try {
+            await supabase.from('comments').delete().eq('request_id', id);
+            await supabase.from('requests').delete().eq('id', id);
+            navigate(-1);
+        } catch (err) {
+            console.error('Error deleting:', err);
+        } finally {
+            setActionLoading(null);
+        }
+    };
+
+    const handleDownloadPDF = () => {
+        if (!reportRef.current) return;
+        setIsGeneratingPDF(true);
+
+        const element = reportRef.current;
+        const opt = {
+            margin: 10,
+            filename: `Audit_Report_${request?.title.replace(/\s+/g, '_')}_${id?.slice(0, 8)}.pdf`,
+            image: { type: 'jpeg' as const, quality: 0.98 },
+            html2canvas: { scale: 2, useCORS: true, letterRendering: true },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' as const }
         };
-        const style = styles[status] || styles.pending;
-        return (
-            <span style={{
-                display: 'inline-flex', alignItems: 'center', gap: '6px',
-                background: style.bg, color: style.text, padding: '6px 14px',
-                borderRadius: '999px', fontSize: '0.8125rem', fontWeight: 700,
-                textTransform: 'uppercase', letterSpacing: '0.05em'
-            }}>
-                <style.icon size={14} />
-                {status.replace('_', ' ')}
-            </span>
-        );
+
+        html2pdf().from(element).set(opt).save().then(() => {
+            setIsGeneratingPDF(false);
+        });
+    };
+
+    const statusMap: Record<string, any> = {
+        pending: { label: 'Pending Review', color: '#f59e0b', bg: '#fffbeb', icon: Clock },
+        approved: { label: 'Approved', color: '#10b981', bg: '#f0fdf4', icon: CheckCircle2 },
+        rejected: { label: 'Rejected', color: '#ef4444', bg: '#fef2f2', icon: XCircle },
+        changes_requested: { label: 'Needs Action', color: '#3b82f6', bg: '#eff6ff', icon: AlertTriangle },
     };
 
     if (loading) return (
@@ -172,265 +202,284 @@ export default function RequestDetail() {
         </div>
     );
 
+    if (unauthorized) return (
+        <div style={{ textAlign: 'center', padding: '10rem 2rem' }} className="mobile-p-md">
+            <div style={{ background: '#fef2f2', color: '#dc2626', width: '80px', height: '80px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem' }}>
+                <ShieldCheck size={40} />
+            </div>
+            <h1 style={{ fontSize: '2rem', fontWeight: 800, color: '#0f172a', marginBottom: '1rem' }} className="mobile-h2">Restricted Access</h1>
+            <p style={{ color: '#64748b', fontSize: '1.1rem', maxWidth: '400px', margin: '0 auto 2rem' }}>You do not have permission to view this request.</p>
+            <button onClick={() => navigate(-1)} className="btn-primary" style={{ padding: '12px 30px', borderRadius: '14px' }}>Go Back</button>
+        </div>
+    );
+
     if (!request) return <div>Request not found</div>;
 
+    const currentStatus = statusMap[request.status] || statusMap.pending;
+
     return (
-        <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
+        <div style={{ maxWidth: '1200px', margin: '0 auto', paddingBottom: '5rem' }}>
             <AnimatePresence>
                 {showSuccess && (
-                    <motion.div
-                        initial={{ opacity: 0, scale: 0.9, y: 20 }}
-                        animate={{ opacity: 1, scale: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.9, y: 20 }}
-                        style={{
-                            position: 'fixed', top: '100px', right: '40px', zIndex: 100,
-                            background: 'white', padding: '1.5rem 2rem', borderRadius: '20px',
-                            boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', border: '1px solid #e2e8f0',
-                            display: 'flex', alignItems: 'center', gap: '1rem'
-                        }}
-                    >
-                        <div style={{
-                            background: showSuccess === 'approved' ? '#d1fae5' : showSuccess === 'rejected' ? '#fee2e2' : '#e0f2fe',
-                            color: showSuccess === 'approved' ? '#059669' : showSuccess === 'rejected' ? '#dc2626' : '#2563eb',
-                            padding: '10px', borderRadius: '12px'
-                        }}>
-                            {showSuccess === 'approved' ? <PartyPopper size={24} /> : showSuccess === 'rejected' ? <XCircle size={24} /> : <AlertTriangle size={24} />}
-                        </div>
-                        <div>
-                            <h4 style={{ margin: 0, fontWeight: 700, fontSize: '1rem', color: '#0f172a' }}>Action Successful</h4>
-                            <p style={{ margin: 0, fontSize: '0.875rem', color: '#64748b' }}>Request is now <strong>{showSuccess.replace('_', ' ')}</strong></p>
-                        </div>
+                    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} style={{ position: 'fixed', bottom: '40px', right: '40px', zIndex: 100, background: 'white', padding: '1.5rem', borderRadius: '20px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                        <div style={{ background: '#d1fae5', color: '#059669', padding: '10px', borderRadius: '12px' }}><PartyPopper size={24} /></div>
+                        <div><h4 style={{ margin: 0, fontWeight: 700 }}>Request Updated</h4></div>
                     </motion.div>
                 )}
             </AnimatePresence>
 
-            <button
-                onClick={() => navigate('/dashboard')}
-                className="no-print"
-                style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#64748b', background: 'none', border: 'none', marginBottom: '2rem', fontWeight: 600, cursor: 'pointer' }}
-            >
-                <ArrowLeft size={18} /> Back to Audit Queue
-            </button>
+            {/* SCREEN NAVIGATION */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2.5rem' }} className="mobile-stack mobile-gap-4">
+                <button
+                    onClick={() => navigate(-1)}
+                    style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#64748b', background: 'none', border: 'none', fontWeight: 600, cursor: 'pointer' }}
+                >
+                    <ArrowLeft size={18} /> Back
+                </button>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '2.5rem' }}>
-                <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '1rem' }}>
-                        {getStatusBadge(request.status)}
-                        <span style={{ color: '#e2e8f0' }}>|</span>
-                        <span style={{ color: '#64748b', fontSize: '0.875rem', fontWeight: 500 }}>Audit ID: #{request.id.slice(0, 8).toUpperCase()}</span>
-                    </div>
-                    <h1 style={{ fontSize: '2.5rem', fontWeight: 800, color: '#0f172a', marginBottom: '0.5rem', letterSpacing: '-0.02em' }}>{request.title}</h1>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#64748b' }}>
-                        <div style={{ width: 24, height: 24, borderRadius: '6px', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <User size={14} />
-                        </div>
-                        <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>
-                            {request.profiles?.full_name || `Employee #${request.employee_id.slice(0, 5)}`} • {new Date(request.created_at).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}
-                        </span>
-                    </div>
-                </div>
-
-                <div className="no-print" style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'center', width: '100%', marginTop: '2rem' }}>
-                    {isAdmin && (request.status === 'approved' || request.status === 'rejected') && (
-                        <button onClick={() => handleAction('changes_requested')} disabled={!!actionLoading} className="btn-action-warn" style={{ padding: '10px 16px', borderRadius: '12px' }}>
-                            {actionLoading === 'changes_requested' ? <Loader2 className="animate-spin" size={18} /> : <><RefreshCcw size={18} /> Re-open</>}
-                        </button>
-                    )}
-
-                    {isAdmin && (request.status === 'approved' || request.status === 'rejected') && (
-                        <button onClick={handleDelete} disabled={!!actionLoading} className="btn-action-reject" style={{ padding: '10px 16px', borderRadius: '12px' }}>
-                            {actionLoading === 'deleting' ? <Loader2 className="animate-spin" size={18} /> : <><Trash2 size={18} /> Delete</>}
-                        </button>
-                    )}
-
-                    <button onClick={handleDownloadReport} className="btn-secondary" style={{ padding: '10px 16px', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '8px', color: '#475569', background: 'white', border: '1.5px solid #e2e8f0', fontWeight: 700 }}>
-                        <Download size={18} /> Report
+                <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'flex-end' }} className="mobile-full">
+                    <button
+                        onClick={handleDownloadPDF}
+                        disabled={isGeneratingPDF}
+                        className="btn-secondary mobile-full"
+                        style={{ padding: '10px 20px', borderRadius: '12px', background: 'white', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, justifyContent: 'center' }}
+                    >
+                        {isGeneratingPDF ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
+                        <span className="mobile-hide">{isGeneratingPDF ? 'Generating...' : 'Download PDF'}</span>
+                        <span className="mobile-show">PDF</span>
                     </button>
-
                     {isOwner && request.status === 'changes_requested' && (
-                        <button onClick={() => navigate(`/create?id=${request.id}`)} className="btn-primary" style={{ padding: '10px 16px', borderRadius: '12px' }}>
-                            <Edit3 size={18} /> Edit & Resubmit
+                        <button onClick={() => navigate(`/create?id=${request.id}`)} className="btn-primary mobile-full" style={{ padding: '10px 20px', borderRadius: '12px' }}>
+                            <Edit3 size={18} /> Edit
                         </button>
                     )}
-
                     {canAction && request.status === 'pending' && (
-                        <>
-                            <button onClick={() => handleAction('rejected')} disabled={!!actionLoading} className="btn-action-reject" style={{ padding: '10px 18px', borderRadius: '12px' }}>
-                                {actionLoading === 'rejected' ? <Loader2 className="animate-spin" size={18} /> : <><X size={18} /> Reject</>}
+                        <div style={{ display: 'flex', gap: '0.5rem' }} className="mobile-full">
+                            <button onClick={() => handleAction('changes_requested')} disabled={!!actionLoading} className="btn-action-change mobile-full" style={{ padding: '10px 18px', borderRadius: '12px', background: '#eff6ff', color: '#1d4ed8', border: '1px solid #dbeafe', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                {actionLoading === 'changes_requested' ? <Loader2 className="animate-spin" size={18} /> : <AlertTriangle size={18} />}
+                                {actionLoading === 'changes_requested' ? '' : 'Request Changes'}
                             </button>
-                            <button onClick={() => handleAction('changes_requested')} disabled={!!actionLoading} className="btn-action-warn" style={{ padding: '10px 18px', borderRadius: '12px' }}>
-                                {actionLoading === 'changes_requested' ? <Loader2 className="animate-spin" size={18} /> : <><AlertTriangle size={18} /> Need Changes</>}
+                            <button onClick={() => handleAction('rejected')} disabled={!!actionLoading} className="btn-action-reject mobile-full" style={{ padding: '10px 18px', borderRadius: '12px' }}>
+                                {actionLoading === 'rejected' ? <Loader2 className="animate-spin" size={18} /> : 'Reject'}
                             </button>
-                            <button onClick={() => handleAction('approved')} disabled={!!actionLoading} className="btn-action-approve" style={{ padding: '10px 18px', borderRadius: '12px' }}>
-                                {actionLoading === 'approved' ? <Loader2 className="animate-spin" size={18} /> : <><Check size={18} /> Approve</>}
+                            <button onClick={() => handleAction('approved')} disabled={!!actionLoading} className="btn-action-approve mobile-full" style={{ padding: '10px 18px', borderRadius: '12px' }}>
+                                {actionLoading === 'approved' ? <Loader2 className="animate-spin" size={18} /> : 'Approve'}
                             </button>
-                        </>
+                        </div>
+                    )}
+                    {isAdmin && (
+                        <button
+                            onClick={() => setShowDeleteConfirm(true)}
+                            className="btn-action-reject mobile-full"
+                            style={{ padding: '10px 18px', borderRadius: '12px', background: '#fef2f2', color: '#ef4444', border: '1px solid #fee2e2' }}
+                        >
+                            <Trash2 size={18} />
+                        </button>
                     )}
                 </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 340px', gap: '2rem' }}>
+            {/* MAIN DASHBOARD UI */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 350px', gap: '2rem' }} className="mobile-grid-1">
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-                    {/* Main Details */}
+                    {/* Header Card */}
                     <div className="glass-card" style={{ padding: '2.5rem' }}>
-                        <h3 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '10px', color: '#1e293b' }}>
-                            <FileText size={22} style={{ color: 'var(--primary)' }} /> Request Overview
-                        </h3>
-                        <p style={{ color: '#475569', lineHeight: 1.7, marginBottom: '2.5rem', whiteSpace: 'pre-wrap', fontSize: '1.05rem' }}>
-                            {request.description}
-                        </p>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '2.5rem' }} className="mobile-stack mobile-gap-4">
+                            <div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '1rem' }}>
+                                    <div style={{ background: currentStatus.bg, color: currentStatus.color, padding: '6px 12px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <currentStatus.icon size={14} /> {currentStatus.label}
+                                    </div>
+                                    <span style={{ color: '#94a3b8', fontSize: '0.85rem', fontWeight: 600 }}>#{id?.slice(0, 8)}</span>
+                                </div>
+                                <h1 style={{ fontSize: '2.75rem', fontWeight: 900, color: '#0f172a', margin: '0 0 0.5rem 0', letterSpacing: '-0.02em', lineHeight: 1.1 }} className="mobile-h1">{request.title}</h1>
+                                <p style={{ color: '#64748b', fontSize: '1.2rem', fontWeight: 500 }}>{request.category.toUpperCase()} • {request.department}</p>
+                            </div>
+                            <div style={{ textAlign: 'right', background: '#f8fafc', padding: '1.5rem', borderRadius: '20px', border: '1px solid #f1f5f9' }} className="mobile-full mobile-text-left">
+                                <p style={{ fontSize: '0.85rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', marginBottom: '4px' }}>Total Amount</p>
+                                <p style={{ fontSize: '2.25rem', fontWeight: 900, color: '#0f172a', margin: 0 }}>RM {request.total_amount.toLocaleString()}</p>
+                            </div>
+                        </div>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.5rem', padding: '1.5rem', background: '#f8fafc', borderRadius: '16px', border: '1px solid #f1f5f9' }}>
-                            <div>
-                                <p style={{ fontSize: '0.75rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Category</p>
-                                <p style={{ fontWeight: 700, color: '#1e293b', margin: 0, textTransform: 'capitalize' }}>{request.category.replace('_', ' ')}</p>
-                            </div>
-                            <div>
-                                <p style={{ fontSize: '0.75rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Department</p>
-                                <p style={{ fontWeight: 700, color: '#1e293b', margin: 0 }}>{request.department}</p>
-                            </div>
-                            <div>
-                                <p style={{ fontSize: '0.75rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Total Amount</p>
-                                <p style={{ fontWeight: 800, color: '#0f172a', margin: 0, fontSize: '1.1rem' }}>RM {request.total_amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                        <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '2rem' }}>
+                            <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#0f172a', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <FileText size={20} color="var(--primary)" /> Justification
+                            </h3>
+                            <div style={{ color: '#475569', lineHeight: 1.8, fontSize: '1.1rem', whiteSpace: 'pre-wrap', background: '#f8fafc', padding: '1.5rem', borderRadius: '16px', border: '1px solid #f1f5f9' }}>
+                                {request.description}
                             </div>
                         </div>
                     </div>
 
-                    {/* AI Smart Insight - CLEANER VERSION */}
-                    {request.ai_completeness_score !== undefined && (
-                        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass-card" style={{ padding: '2.5rem', background: 'linear-gradient(135deg, #f8fbff 0%, #ffffff 100%)', border: '1.5px solid #dbeafe', position: 'relative', overflow: 'hidden' }}>
-                            <div style={{ position: 'absolute', top: 0, right: 0, padding: '1.5rem' }}>
-                                <Sparkles size={80} style={{ color: '#dbeafe', opacity: 0.3 }} />
+                    {/* AI Insights */}
+                    <div className="glass-card" style={{ padding: '2.5rem', background: 'linear-gradient(135deg, #ffffff 0%, #f0f9ff 100%)', border: '1px solid #bae6fd' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                            <h3 style={{ fontSize: '1.2rem', fontWeight: 900, color: '#0369a1', margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <Sparkles size={22} /> AI Review
+                            </h3>
+                            <div style={{ background: '#0369a1', color: 'white', padding: '6px 14px', borderRadius: '10px', fontSize: '1.1rem', fontWeight: 900 }}>
+                                {request.ai_completeness_score}%
                             </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '2rem' }}>
-                                <div style={{ background: 'var(--primary)', color: 'white', padding: '10px', borderRadius: '12px' }}>
-                                    <Sparkles size={20} />
-                                </div>
-                                <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#1e3a8a', margin: 0 }}>Smart AI Audit Analysis</h3>
-                                <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
-                                    <div style={{ fontSize: '1.5rem', fontWeight: 900, color: '#2563eb' }}>{request.ai_completeness_score}%</div>
-                                    <div style={{ fontSize: '0.65rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Compliance Score</div>
-                                </div>
-                            </div>
-
-                            <div style={{ background: 'white', padding: '1.5rem', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.02)' }}>
-                                <p style={{ color: '#334155', lineHeight: 1.7, margin: 0, fontSize: '1.05rem', fontWeight: 500 }}>
-                                    {request.ai_summary}
-                                </p>
-                            </div>
-                        </motion.div>
-                    )}
-
-                    {/* Comments & Discussion */}
-                    <div className="glass-card no-print" style={{ padding: '2.5rem' }}>
-                        <h3 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '2rem', display: 'flex', alignItems: 'center', gap: '10px', color: '#1e293b' }}>
-                            <MessageSquare size={22} style={{ color: 'var(--primary)' }} /> Audit Discussion & Feed
-                        </h3>
-
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', marginBottom: '2.5rem' }}>
-                            {comments.map((c) => {
-                                const isSystem = c.content.includes('Status updated to');
-                                return (
-                                    <div key={c.id} style={{ display: 'flex', gap: '14px', alignItems: 'flex-start' }}>
-                                        {!isSystem && (
-                                            <div style={{
-                                                width: 40, height: 40, borderRadius: '12px',
-                                                background: c.profiles?.role === 'admin' ? '#1e293b' : c.profiles?.role === 'manager' ? '#2563eb' : '#f1f5f9',
-                                                flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: c.profiles?.role === 'employee' ? '#64748b' : 'white', fontSize: '12px', fontWeight: 800
-                                            }}>
-                                                {c.profiles?.full_name?.charAt(0) || 'U'}
-                                            </div>
-                                        )}
-                                        <div style={{
-                                            background: isSystem ? '#f8fafc' : '#ffffff',
-                                            padding: isSystem ? '12px 20px' : '16px 20px',
-                                            borderRadius: isSystem ? '12px' : '16px',
-                                            flex: 1, border: isSystem ? '1px dashed #e2e8f0' : '1px solid #eef2f6'
-                                        }}>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                                                <span style={{ fontWeight: 700, fontSize: '0.9rem', color: isSystem ? '#94a3b8' : '#1e293b' }}>
-                                                    {isSystem ? 'System Log' : (c.profiles?.full_name || 'Team Member')}
-                                                    {!isSystem && <span style={{ fontWeight: 600, color: '#94a3b8', marginLeft: '8px', fontSize: '0.75rem' }}>• {c.profiles?.role}</span>}
-                                                </span>
-                                                <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                                            </div>
-                                            <p style={{ fontSize: isSystem ? '0.8125rem' : '0.95rem', color: isSystem ? '#64748b' : '#334155', margin: 0 }}>{c.content}</p>
-                                        </div>
-                                    </div>
-                                );
-                            })}
                         </div>
-
-                        <div style={{ position: 'relative' }}>
-                            <textarea
-                                className="input-field"
-                                rows={3}
-                                placeholder="Add a comment..."
-                                value={commentText}
-                                onChange={(e) => setCommentText(e.target.value)}
-                                style={{ padding: '16px 120px 16px 20px', borderRadius: '16px' }}
-                                disabled={posting}
-                            />
-                            <button
-                                onClick={() => handlePostComment()}
-                                disabled={posting || !commentText.trim()}
-                                style={{ position: 'absolute', right: '12px', bottom: '12px', background: 'var(--primary)', color: 'white', border: 'none', padding: '10px 18px', borderRadius: '12px', fontWeight: 700, fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}
-                            >
-                                {posting ? <Loader2 size={16} className="animate-spin" /> : <><Send size={16} /> Post</>}
-                            </button>
+                        <div style={{ background: 'white', padding: '1.75rem', borderRadius: '20px', border: '1.5px solid #e0f2fe', color: '#1e40af', lineHeight: 1.7, fontSize: '1.05rem', whiteSpace: 'pre-wrap' }}>
+                            {request.ai_summary || "AI Engine is analyzing compliance status..."}
                         </div>
                     </div>
                 </div>
 
-                <div className="no-print" style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-                    <div className="glass-card" style={{ padding: '2rem' }}>
-                        <h4 style={{ fontSize: '1rem', fontWeight: 800, color: '#0f172a', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <History size={18} style={{ color: 'var(--primary)' }} /> Support Documents
-                        </h4>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                            {request.attachments?.map((file, i) => (
-                                <div key={i} className="attachment-item" style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', borderRadius: '12px', background: '#f8fafc', border: '1px solid #f1f5f9', cursor: 'pointer' }}>
-                                    <div style={{ background: 'white', width: '36px', height: '36px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', border: '1px solid #eef2f6' }}>
-                                        <FileText size={18} />
+                {/* Sidebar Info */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                    <div className="glass-card" style={{ padding: '1.5rem' }}>
+                        <h4 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#0f172a', marginBottom: '1.5rem', textTransform: 'uppercase' }}>Audit Info</h4>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <div style={{ background: '#f1f5f9', width: '36px', height: '36px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><User size={18} color="#64748b" /></div>
+                                <div>
+                                    <p style={{ margin: 0, fontSize: '0.7rem', fontWeight: 800, color: '#94a3b8' }}>PREPARED BY</p>
+                                    <p style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700 }}>{request.profiles?.full_name}</p>
+                                </div>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <div style={{ background: '#f1f5f9', width: '36px', height: '36px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Building size={18} color="#64748b" /></div>
+                                <div>
+                                    <p style={{ margin: 0, fontSize: '0.7rem', fontWeight: 800, color: '#94a3b8' }}>DEPARTMENT</p>
+                                    <p style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700 }}>{request.department}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="glass-card" style={{ padding: '1.5rem', height: '400px', display: 'flex', flexDirection: 'column' }}>
+                        <h4 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#0f172a', marginBottom: '1.25rem', textTransform: 'uppercase' }}>Timeline</h4>
+                        <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1.25rem' }}>
+                            {comments.map((comment, i) => (
+                                <div key={i} style={{ padding: '12px', background: comment.content.includes('Status updated') ? '#f8fafc' : 'white', borderRadius: '12px', border: '1px solid #f1f5f9' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                        <span style={{ fontSize: '0.75rem', fontWeight: 800 }}>{comment.profiles?.full_name?.split(' ')[0]}</span>
+                                        <span style={{ fontSize: '0.65rem', color: '#94a3b8' }}>{new Date(comment.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                                     </div>
-                                    <div style={{ flex: 1, overflow: 'hidden' }}>
-                                        <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 700, color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{file}</p>
-                                        <p style={{ margin: 0, fontSize: '0.7rem', color: '#94a3b8' }}>Verified Support</p>
-                                    </div>
+                                    <p style={{ margin: 0, fontSize: '0.85rem', color: '#475569' }}>{comment.content}</p>
                                 </div>
                             ))}
-                            {(!request.attachments || request.attachments.length === 0) && (
-                                <p style={{ textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem', margin: '1rem 0' }}>No attachments uploaded</p>
-                            )}
                         </div>
-                    </div>
-
-                    <div className="glass-card" style={{ padding: '2rem', background: '#0f172a', color: 'white' }}>
-                        <h4 style={{ fontSize: '1rem', fontWeight: 800, color: 'white', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <Info size={18} style={{ color: '#60a5fa' }} /> Audit Notice
-                        </h4>
-                        <p style={{ fontSize: '0.875rem', color: 'rgba(255,255,255,0.6)', lineHeight: 1.6, margin: 0 }}>
-                            This audit is subject to Malaysian corporate tax regulations. All supporting documents must be kept for 7 years.
-                        </p>
+                        <div style={{ position: 'relative' }}>
+                            <input value={commentText} onChange={e => setCommentText(e.target.value)} placeholder="Note..." style={{ width: '100%', padding: '12px 40px 12px 14px', borderRadius: '12px', border: '1.5px solid #e2e8f0', fontSize: '0.85rem' }} />
+                            <button onClick={() => handlePostComment()} disabled={posting || !commentText.trim()} style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer' }}>
+                                {posting ? <Loader2 className="animate-spin" size={18} /> : <Send size={18} />}
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
 
+            {/* PDF TEMPLATE */}
+            <div style={{ position: 'absolute', left: '-9999px', top: 0, width: '210mm' }}>
+                <div ref={reportRef} style={{ background: 'white', padding: '40px', minHeight: '1000px', border: '2px solid #000' }}>
+                    {/* Official template content same as before but ensured it exists here for capture */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '3px solid #000', paddingBottom: '20px', marginBottom: '40px' }}>
+                        <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
+                            <ShieldCheck size={40} />
+                            <div>
+                                <h1 style={{ margin: 0, fontSize: '24px', fontWeight: 900 }}>AUDIT PACK MALAYSIA</h1>
+                                <p style={{ margin: 0, fontSize: '10px' }}>OFFICIAL VERIFICATION REPORT • ID: {id}</p>
+                            </div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                            <h2 style={{ margin: 0, fontSize: '20px' }}>{request.status.toUpperCase()}</h2>
+                            <p style={{ margin: 0, fontSize: '12px' }}>{new Date().toLocaleDateString('en-MY')}</p>
+                        </div>
+                    </div>
+                    <h2 style={{ fontSize: '32px', marginBottom: '30px' }}>{request.title}</h2>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '30px', marginBottom: '40px' }}>
+                        <div style={{ border: '1px solid #eee', padding: '20px' }}>
+                            <p style={{ fontSize: '10px', fontWeight: 800, color: '#888' }}>PREPARED BY</p>
+                            <p style={{ fontSize: '16px', fontWeight: 700, margin: 0 }}>{request.profiles?.full_name}</p>
+                            <p style={{ fontSize: '14px', margin: 0 }}>{request.department} Department</p>
+                        </div>
+                        <div style={{ border: '1px solid #eee', padding: '20px', textAlign: 'right' }}>
+                            <p style={{ fontSize: '10px', fontWeight: 800, color: '#888' }}>TOTAL VALUE</p>
+                            <p style={{ fontSize: '24px', fontWeight: 900, margin: 0 }}>RM {request.total_amount.toLocaleString()}</p>
+                        </div>
+                    </div>
+                    <div>
+                        <h4 style={{ borderBottom: '1px solid #000', paddingBottom: '5px', marginBottom: '15px' }}>DESCRIPTION</h4>
+                        <div style={{ fontSize: '14px', lineHeight: 1.6 }}>{request.description}</div>
+                    </div>
+                    <div style={{ marginTop: '50px', background: '#f8fafc', padding: '20px' }}>
+                        <h4 style={{ margin: 0 }}>AI SCORE: {request.ai_completeness_score}%</h4>
+                        <p style={{ fontSize: '12px' }}>{request.ai_summary}</p>
+                    </div>
+                    <div style={{ marginTop: '100px', textAlign: 'center', borderTop: '1px solid #000', paddingTop: '10px' }}>
+                        <p style={{ fontSize: '10px' }}>STRICTLY CONFIDENTIAL • © 2025 AUDIT PACK MALAYSIA</p>
+                    </div>
+                </div>
+            </div>
+
+            {/* DELETE CONFIRMATION MODAL */}
+            <AnimatePresence>
+                {showDeleteConfirm && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        style={{
+                            position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)',
+                            zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem'
+                        }}
+                    >
+                        <motion.div
+                            initial={{ scale: 0.95, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ scale: 0.95, opacity: 0 }}
+                            style={{
+                                background: 'white', borderRadius: '24px', padding: '2rem', width: '100%', maxWidth: '400px',
+                                boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)'
+                            }}
+                        >
+                            <div style={{
+                                width: '64px', height: '64px', borderRadius: '20px', background: '#fef2f2', color: '#dc2626',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem'
+                            }}>
+                                <Trash2 size={32} />
+                            </div>
+                            <h3 style={{ textAlign: 'center', fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', margin: '0 0 0.5rem 0' }}>
+                                Delete Request?
+                            </h3>
+                            <p style={{ textAlign: 'center', color: '#64748b', margin: '0 0 2rem 0', lineHeight: 1.5 }}>
+                                This action cannot be undone. This will permanently delete the audit request and all associated data.
+                            </p>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                                <button
+                                    onClick={() => setShowDeleteConfirm(false)}
+                                    style={{
+                                        padding: '12px', borderRadius: '14px', border: '1px solid #e2e8f0', background: 'white',
+                                        color: '#64748b', fontWeight: 700, cursor: 'pointer', fontSize: '1rem'
+                                    }}
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={handleDelete}
+                                    style={{
+                                        padding: '12px', borderRadius: '14px', border: 'none', background: '#ef4444',
+                                        color: 'white', fontWeight: 700, cursor: 'pointer', fontSize: '1rem',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
+                                    }}
+                                >
+                                    {actionLoading === 'deleting' ? <Loader2 className="animate-spin" size={20} /> : 'Delete'}
+                                </button>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
             <style>{`
-                .loader-ring {
-                    width: 48px; height: 48px; border: 4px solid #f3f3f3; border-top: 4px solid #2563eb;
-                    border-radius: 50%; animation: spin 1s linear infinite;
-                }
+                .btn-action-approve { background: #d1fae5; color: #065f46; border: 1px solid #a7f3d0; font-weight: 800; cursor: pointer; }
+                .btn-action-reject { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; font-weight: 800; cursor: pointer; }
+                .btn-action-change:hover { background: #dbeafe !important; }
+                .loader-ring { width: 48px; height: 48px; border: 4px solid #f3f3f3; border-top: 4px solid #2563eb; border-radius: 50%; animation: spin 1s linear infinite; }
                 @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-                
-                @media print {
-                    .no-print, header, aside, nav, button, textarea { display: none !important; }
-                    .glass-card { background: white !important; border: 1px solid #eee !important; box-shadow: none !important; margin: 0; }
-                    body { background: white !important; padding: 0 !important; }
-                    main { padding: 0 !important; margin: 0 !important; }
-                    h1 { font-size: 2rem !important; margin-top: 0 !important; }
-                    .print-header { display: block !important; border-bottom: 2px solid #333; padding-bottom: 1rem; margin-bottom: 2rem; }
-                }
             `}</style>
         </div>
     );

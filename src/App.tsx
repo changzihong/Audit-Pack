@@ -7,6 +7,7 @@ import RequestDetail from './pages/RequestDetail';
 import ProfilePage from './pages/ProfilePage';
 import ArchivePage from './pages/ArchivePage';
 import ManageUsers from './pages/ManageUsers';
+import RequestsPage from './pages/RequestsPage';
 import Shell from './components/Shell';
 import { useEffect, useState } from 'react';
 import { supabase } from './lib/supabase';
@@ -45,6 +46,7 @@ function App() {
 
                 <Route element={<Shell session={session} />}>
                     <Route path="/dashboard" element={<Dashboard />} />
+                    <Route path="/requests" element={<RequestsPage />} />
                     <Route path="/archive" element={<ArchivePage />} />
                     <Route path="/admin/users" element={<ManageUsers />} />
                     <Route path="/create" element={<CreateRequest />} />

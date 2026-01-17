@@ -3,15 +3,14 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import {
     Plus, Clock, CheckCircle2, AlertTriangle, ArrowUpRight,
-    Search, Filter, MoreVertical, FileText, Info, BarChart3, TrendingUp, Calendar as CalendarIcon, XCircle
+    TrendingUp, Wallet, Users, Target, Zap, ShieldCheck, BarChart2,
+    Calendar, ArrowDownRight, CreditCard
 } from 'lucide-react';
 import { AuditRequest, Profile } from '../types';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 
 export default function Dashboard() {
-    const [requests, setRequests] = useState<AuditRequest[]>([]);
     const [allRequests, setAllRequests] = useState<AuditRequest[]>([]);
-    const [mtdCount, setMtdCount] = useState(0);
     const [profile, setProfile] = useState<Profile | null>(null);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('daily');
@@ -25,9 +24,7 @@ export default function Dashboard() {
             .on(
                 'postgres_changes',
                 { event: '*', schema: 'public', table: 'requests' },
-                () => {
-                    refreshRequests();
-                }
+                () => { refreshRequests(); }
             )
             .subscribe();
 
@@ -46,97 +43,84 @@ export default function Dashboard() {
     };
 
     const refreshRequests = async () => {
-        if (profile) {
-            await fetchRequests(profile);
-        }
+        if (profile) await fetchRequests(profile);
     };
 
     const fetchRequests = async (profileData: Profile) => {
         try {
             let query = supabase.from('requests').select('*');
-
-            if (profileData.role === 'admin') {
-                // Admins see everything
-            } else if (profileData.role === 'manager') {
+            if (profileData.role === 'manager') {
                 query = query.eq('department', profileData.department);
-            } else {
+            } else if (profileData.role === 'employee') {
                 query = query.eq('employee_id', profileData.id);
             }
 
             const { data, error } = await query.order('created_at', { ascending: false });
             if (error) throw error;
-
-            const allFetched = data || [];
-            setAllRequests(allFetched);
-
-            // Filter only pending or changes_requested for the ACTIVE list
-            setRequests(allFetched.filter(r => ['pending', 'changes_requested'].includes(r.status)));
-
-            // Calculate MTD (Month to Date) Completed
-            const now = new Date();
-            const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-
-            const completedThisMonth = allFetched.filter(r =>
-                ['approved', 'rejected'].includes(r.status) &&
-                new Date(r.created_at) >= startOfMonth
-            );
-            setMtdCount(completedThisMonth.length);
-
+            setAllRequests(data || []);
         } catch (err) {
             console.error('Error fetching requests:', err);
         }
     };
 
-    const trendStats = useMemo(() => {
-        const now = new Date();
+    // --- DATA CALCULATIONS ---
+    const statsData = useMemo(() => {
+        const totalValue = allRequests.reduce((sum, r) => sum + r.total_amount, 0);
+        const pendingCount = allRequests.filter(r => r.status === 'pending').length;
+        const actionCount = allRequests.filter(r => r.status === 'changes_requested').length;
 
-        // Daily: Last 7 days
+        const now = new Date();
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const mtdRequests = allRequests.filter(r => new Date(r.created_at) >= startOfMonth);
+        const mtdCompleted = mtdRequests.filter(r => ['approved', 'rejected'].includes(r.status)).length;
+        const mtdValue = mtdRequests.reduce((sum, r) => sum + r.total_amount, 0);
+
+        const deptMap: Record<string, number> = {};
+        allRequests.forEach(r => {
+            deptMap[r.department] = (deptMap[r.department] || 0) + r.total_amount;
+        });
+        const topDepts = Object.entries(deptMap)
+            .sort(([, a], [, b]) => b - a)
+            .slice(0, 4);
+
+        const catMap: Record<string, number> = {};
+        allRequests.forEach(r => {
+            catMap[r.category] = (catMap[r.category] || 0) + 1;
+        });
+
+        const scoredRequests = allRequests.filter(r => r.ai_completeness_score !== undefined);
+        const avgAiScore = scoredRequests.length > 0
+            ? Math.round(scoredRequests.reduce((sum, r) => sum + (r.ai_completeness_score || 0), 0) / scoredRequests.length)
+            : 0;
+
+        return {
+            totalValue, mtdValue, pendingCount, actionCount, mtdCompleted, topDepts, catMap, avgAiScore
+        };
+    }, [allRequests]);
+
+    const trendStats = useMemo(() => {
         const daily = Array.from({ length: 7 }, (_, i) => {
             const d = new Date();
             d.setDate(d.getDate() - (6 - i));
-            const label = d.toLocaleDateString('en-US', { weekday: 'short' });
-            const count = allRequests.filter(r => {
+            const val = allRequests.filter(r => new Date(r.created_at).toDateString() === d.toDateString()).length;
+            return { label: d.toLocaleDateString('en-US', { weekday: 'short' }), val };
+        });
+
+        const monthly = Array.from({ length: 6 }, (_, i) => {
+            const d = new Date();
+            d.setMonth(d.getMonth() - (5 - i));
+            const val = allRequests.filter(r => {
                 const rd = new Date(r.created_at);
-                return rd.toDateString() === d.toDateString();
+                return rd.getMonth() === d.getMonth() && rd.getFullYear() === d.getFullYear();
             }).length;
-            return { label, val: count };
+            return { label: d.toLocaleDateString('en-US', { month: 'short' }), val };
         });
 
-        // Monthly: Jan to Dec of current year
-        const monthly = Array.from({ length: 12 }, (_, i) => {
-            const d = new Date(now.getFullYear(), i, 1);
-            const label = d.toLocaleDateString('en-US', { month: 'short' });
-            const count = allRequests.filter(r => {
-                const rd = new Date(r.created_at);
-                return rd.getMonth() === i && rd.getFullYear() === now.getFullYear();
-            }).length;
-            return { label, val: count };
-        });
-
-        // Yearly: Last 3 years
-        const yearly = Array.from({ length: 3 }, (_, i) => {
-            const year = now.getFullYear() - (2 - i);
-            const count = allRequests.filter(r => new Date(r.created_at).getFullYear() === year).length;
-            return { label: year.toString(), val: count };
-        });
-
-        return { daily, monthly, yearly };
+        return { daily, monthly };
     }, [allRequests]);
-
-    const stats = [
-        { label: 'Pending Review', count: requests.filter(r => r.status === 'pending').length, color: '#f59e0b', icon: Clock },
-        { label: 'Needs Action', count: requests.filter(r => r.status === 'changes_requested').length, color: '#2563eb', icon: AlertTriangle },
-        { label: 'Completed (MTD)', count: mtdCount, color: '#10b981', icon: CheckCircle2 },
-    ];
 
     const currentTrend = trendStats[activeTab as keyof typeof trendStats];
     const maxVal = Math.max(...currentTrend.map(t => t.val)) || 1;
-
-    const getStatusStyle = (status: string) => {
-        if (status === 'pending') return { bg: '#fef3c7', text: '#92400e', label: 'Pending' };
-        if (status === 'changes_requested') return { bg: '#dbeafe', text: '#1e40af', label: 'Changes' };
-        return { bg: '#f1f5f9', text: '#475569', label: status };
-    };
 
     if (loading) return (
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
@@ -145,47 +129,79 @@ export default function Dashboard() {
     );
 
     return (
-        <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
-            {/* Header Section */}
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', marginBottom: '4rem', gap: '2rem' }}>
-                <div>
-                    <h1 style={{ fontSize: '3rem', fontWeight: 800, color: '#0f172a', marginBottom: '0.5rem', letterSpacing: '-0.03em' }}>
-                        Compliance Center
-                    </h1>
-                    <p style={{ color: '#64748b', fontSize: '1.2rem', fontWeight: 500 }}>
-                        Welcome back, <span style={{ color: 'var(--primary)', fontWeight: 700 }}>{profile?.full_name?.split(' ')[0]}</span>. There are {requests.length} audits in your queue.
-                    </p>
+        <div style={{ maxWidth: '1400px', margin: '0 auto', paddingBottom: '5rem' }}>
+            {/* HERO SECTION */}
+            <div style={{
+                position: 'relative',
+                background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
+                borderRadius: '32px',
+                padding: '4rem 3rem',
+                marginBottom: '3rem',
+                overflow: 'hidden',
+                color: 'white'
+            }} className="mobile-p-md">
+                <div style={{ position: 'absolute', top: '-10%', right: '-5%', opacity: 0.1 }} className="mobile-hide">
+                    <ShieldCheck size={400} />
                 </div>
-                <button
-                    onClick={() => navigate('/create')}
-                    className="btn-primary"
-                    style={{ padding: '16px 40px', borderRadius: '18px', fontSize: '1.1rem', fontWeight: 800, gap: '12px', boxShadow: '0 20px 25px -5px rgba(37, 99, 235, 0.2)' }}
-                >
-                    <Plus size={24} /> New Audit Request
-                </button>
+                <div style={{ position: 'relative', zIndex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} className="mobile-stack">
+                    <div className="mobile-full">
+                        <motion.span initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} style={{ fontSize: '0.9rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.15em', color: '#60a5fa', marginBottom: '1rem', display: 'block' }}>Analytical Overview</motion.span>
+                        <h1 style={{ fontSize: '3.5rem', fontWeight: 900, marginBottom: '1rem', letterSpacing: '-0.04em', lineHeight: 1 }} className="mobile-h1">Dashboard</h1>
+                        <p style={{ fontSize: '1.25rem', opacity: 0.7, maxWidth: '500px', lineHeight: 1.6 }} className="mobile-hide">Welcome back, {profile?.full_name?.split(' ')[0]}. You have <span style={{ color: '#60a5fa', fontWeight: 800 }}>{statsData.pendingCount}</span> requests awaiting review today.</p>
+                    </div>
+                    <button
+                        onClick={() => navigate('/requests')}
+                        className="btn-primary mobile-full"
+                        style={{ padding: '20px 48px', borderRadius: '20px', fontSize: '1.2rem', fontWeight: 900, background: 'white', color: '#0f172a', border: 'none', gap: '12px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)', marginTop: '2rem' }}
+                    >
+                        <Plus size={24} /> New Audit Request
+                    </button>
+                </div>
             </div>
 
-            {/* Visual Analytics Section */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 380px', gap: '2rem', marginBottom: '3rem' }}>
-                <div className="glass-card" style={{ padding: '2rem', position: 'relative', overflow: 'hidden' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <div style={{ background: '#f0f9ff', color: '#0369a1', padding: '8px', borderRadius: '10px' }}>
-                                <TrendingUp size={20} />
-                            </div>
-                            <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>Audit Volume Trends</h3>
+            {/* KEY METRICS GRID */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.75rem', marginBottom: '3rem' }}>
+                {[
+                    { label: 'Total Audited', value: `RM ${(statsData.totalValue / 1000).toFixed(1)}k`, sub: 'Life-to-date volume', icon: Wallet, color: '#2563eb' },
+                    { label: 'Month-to-Date', value: `RM ${(statsData.mtdValue / 1000).toFixed(1)}k`, sub: `${statsData.mtdCompleted} completed audits`, icon: Calendar, color: '#10b981' },
+                    { label: 'AI Health Score', value: `${statsData.avgAiScore}%`, sub: 'Compliance average', icon: Zap, color: '#7c3aed' },
+                    { label: 'Pending Action', value: statsData.pendingCount + statsData.actionCount, sub: 'Requires attention', icon: AlertTriangle, color: '#f59e0b' },
+                ].map((stat, i) => (
+                    <motion.div key={i} whileHover={{ y: -5 }} className="glass-card" style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                        <div style={{ background: `${stat.color}10`, color: stat.color, width: '48px', height: '48px', borderRadius: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <stat.icon size={26} />
                         </div>
-                        <div style={{ display: 'flex', background: '#f1f5f9', padding: '4px', borderRadius: '10px', gap: '4px' }}>
-                            {['daily', 'monthly', 'yearly'].map(t => (
+                        <div>
+                            <p style={{ fontSize: '0.85rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{stat.label}</p>
+                            <h2 style={{ fontSize: '2rem', fontWeight: 900, color: '#0f172a', margin: '4px 0' }}>{stat.value}</h2>
+                            <p style={{ fontSize: '0.8rem', color: '#94a3b8', fontWeight: 600 }}>{stat.sub}</p>
+                        </div>
+                    </motion.div>
+                ))}
+            </div>
+
+            {/* MAIN DATA SECTION */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 400px', gap: '2rem' }} className="mobile-grid-1">
+                {/* Visual Trends Section */}
+                <div className="glass-card" style={{ padding: '2.5rem', overflow: 'hidden' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '3rem' }} className="mobile-stack mobile-gap-4">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <div style={{ background: '#f0f9ff', padding: '10px', borderRadius: '12px', color: '#0369a1' }}>
+                                <BarChart2 size={24} />
+                            </div>
+                            <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0f172a', margin: 0 }}>Audit Volume Trends</h3>
+                        </div>
+                        <div style={{ display: 'flex', background: '#f1f5f9', padding: '5px', borderRadius: '12px', gap: '5px' }} className="mobile-full">
+                            {['daily', 'monthly'].map(t => (
                                 <button
                                     key={t}
                                     onClick={() => setActiveTab(t)}
                                     style={{
+                                        flex: 1,
                                         background: activeTab === t ? 'white' : 'transparent',
-                                        border: 'none', padding: '6px 16px', borderRadius: '8px',
-                                        fontSize: '0.75rem', fontWeight: 700, color: activeTab === t ? '#0f172a' : '#64748b',
-                                        cursor: 'pointer', boxShadow: activeTab === t ? '0 2px 4px rgba(0,0,0,0.05)' : 'none',
-                                        transition: 'all 0.2s', textTransform: 'capitalize'
+                                        border: 'none', padding: '8px 24px', borderRadius: '10px',
+                                        fontSize: '0.85rem', fontWeight: 800, color: activeTab === t ? '#0f172a' : '#64748b',
+                                        cursor: 'pointer', transition: 'all 0.2s', textTransform: 'capitalize'
                                     }}
                                 >
                                     {t}
@@ -194,169 +210,89 @@ export default function Dashboard() {
                         </div>
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'flex-end', gap: '12px', height: '200px', padding: '0 10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-end', gap: '10px', height: '300px', padding: '0 10px', overflowX: 'auto' }}>
                         {currentTrend.map((t, i) => (
-                            <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
-                                <motion.div
-                                    initial={{ height: 0 }}
-                                    animate={{ height: `${(t.val / maxVal) * 160}px` }}
-                                    style={{
-                                        width: '100%',
-                                        maxWidth: '40px',
-                                        background: 'linear-gradient(to top, #2563eb, #60a5fa)',
-                                        borderRadius: '6px 6px 4px 4px',
-                                        position: 'relative'
-                                    }}
-                                >
-                                    <div className="bar-tooltip">{t.val}</div>
-                                </motion.div>
-                                <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>{t.label}</span>
+                            <div key={i} style={{ flex: 1, minWidth: '40px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '15px' }}>
+                                <div style={{ position: 'relative', width: '100%', display: 'flex', justifyContent: 'center' }}>
+                                    <motion.div
+                                        initial={{ height: 0 }}
+                                        animate={{ height: `${(t.val / maxVal) * 200}px` }}
+                                        style={{
+                                            width: '100%', maxWidth: '40px',
+                                            background: 'linear-gradient(to top, #2563eb 0%, #60a5fa 100%)',
+                                            borderRadius: '12px 12px 4px 4px',
+                                            position: 'relative',
+                                            boxShadow: '0 10px 15px -3px rgba(37, 99, 235, 0.2)'
+                                        }}
+                                    >
+                                        <div className="bar-tooltip-v2">{t.val} Audits</div>
+                                    </motion.div>
+                                </div>
+                                <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' }}>{t.label}</span>
                             </div>
                         ))}
                     </div>
                 </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                    {stats.map((stat, i) => (
-                        <div key={i} className="glass-card" style={{ padding: '1.5rem', display: 'flex', alignItems: 'center', gap: '1.25rem', border: '1.5px solid #f1f5f9' }}>
-                            <div style={{ background: `${stat.color}15`, color: stat.color, padding: '12px', borderRadius: '14px' }}>
-                                <stat.icon size={24} style={{ color: stat.color }} />
-                            </div>
-                            <div>
-                                <p style={{ fontSize: '0.85rem', fontWeight: 700, color: '#64748b', margin: '0 0 2px 0' }}>{stat.label}</p>
-                                <p style={{ fontSize: '1.5rem', fontWeight: 900, color: '#0f172a', margin: 0 }}>{stat.count}</p>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            </div>
-
-            {/* Audit Queue Section */}
-            <div className="glass-card" style={{ padding: '0', border: '1.5px solid #f1f5f9', borderRadius: '24px', overflow: 'hidden' }}>
-                <div style={{ padding: '2rem', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <div style={{ background: 'white', padding: '8px', borderRadius: '10px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
-                            <BarChart3 size={20} color="var(--primary)" />
-                        </div>
-                        <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#1e293b', margin: 0 }}>Active Audit Queue</h2>
-                    </div>
-                    <div style={{ display: 'flex', gap: '1rem' }}>
-                        <div style={{ position: 'relative' }}>
-                            <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-                            <input type="text" placeholder="Filter requests..." style={{ padding: '10px 12px 10px 36px', borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '0.9rem', outline: 'none', width: '240px' }} />
+                {/* Sidebars */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+                    <div className="glass-card" style={{ padding: '2rem' }}>
+                        <h4 style={{ fontSize: '1rem', fontWeight: 900, color: '#0f172a', marginBottom: '1.5rem', display: 'flex', gap: '10px' }}>
+                            <Users size={20} color="#2563eb" /> Top Departments
+                        </h4>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                            {statsData.topDepts.map(([name, price], i) => (
+                                <div key={i}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.9rem', fontWeight: 800 }}>
+                                        <span style={{ color: '#475569' }}>{name}</span>
+                                        <span style={{ color: '#0f172a' }}>RM {(price / 1000).toFixed(1)}k</span>
+                                    </div>
+                                    <div style={{ height: '8px', background: '#f1f5f9', borderRadius: '4px', overflow: 'hidden' }}>
+                                        <motion.div initial={{ width: 0 }} animate={{ width: `${(price / (statsData.topDepts[0][1] as number)) * 100}%` }} style={{ height: '100%', background: '#2563eb', borderRadius: '4px' }} />
+                                    </div>
+                                </div>
+                            ))}
                         </div>
                     </div>
-                </div>
 
-                <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-                        <thead>
-                            <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                <th style={{ padding: '1.25rem 2rem', color: '#64748b', fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Entity / Description</th>
-                                <th style={{ padding: '1.25rem 2rem', color: '#64748b', fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Department</th>
-                                <th style={{ padding: '1.25rem 2rem', color: '#64748b', fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Total Value</th>
-                                <th style={{ padding: '1.25rem 2rem', color: '#64748b', fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Status</th>
-                                <th style={{ padding: '1.25rem 2rem', color: '#64748b', fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Health</th>
-                                <th style={{ padding: '1.25rem 2rem', color: '#64748b', fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em' }}></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {requests.map((request) => {
-                                const statusInfo = getStatusStyle(request.status);
-                                return (
-                                    <tr
-                                        key={request.id}
-                                        onClick={() => navigate(`/request/${request.id}`)}
-                                        style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'all 0.2s' }}
-                                        className="hover-row"
-                                    >
-                                        <td style={{ padding: '1.5rem 2rem' }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                                                <div style={{ padding: '10px', background: '#f8fafc', borderRadius: '12px', color: '#94a3b8' }}>
-                                                    <FileText size={20} />
-                                                </div>
-                                                <div>
-                                                    <p style={{ fontWeight: 700, color: '#0f172a', margin: '0 0 4px 0', fontSize: '1rem' }}>{request.title}</p>
-                                                    <p style={{ fontSize: '0.8rem', color: '#64748b', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                        <CalendarIcon size={12} /> {new Date(request.created_at).toLocaleDateString()}
-                                                    </p>
-                                                </div>
-                                            </div>
-                                        </td>
-                                        <td style={{ padding: '1.5rem 2rem' }}>
-                                            <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#475569', background: '#f1f5f9', padding: '4px 10px', borderRadius: '8px' }}>
-                                                {request.department}
-                                            </span>
-                                        </td>
-                                        <td style={{ padding: '1.5rem 2rem', fontWeight: 800, color: '#0f172a', fontSize: '1.05rem' }}>
-                                            RM {request.total_amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                                        </td>
-                                        <td style={{ padding: '1.5rem 2rem' }}>
-                                            <span style={{
-                                                background: statusInfo.bg,
-                                                color: statusInfo.text,
-                                                padding: '4px 12px',
-                                                borderRadius: '99px',
-                                                fontSize: '0.75rem',
-                                                fontWeight: 700,
-                                                textTransform: 'uppercase'
-                                            }}>
-                                                {statusInfo.label}
-                                            </span>
-                                        </td>
-                                        <td style={{ padding: '1.5rem 2rem' }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                <div style={{ width: '48px', height: '6px', background: '#f1f5f9', borderRadius: '3px', overflow: 'hidden' }}>
-                                                    <div style={{ width: `${request.ai_completeness_score || 0}%`, height: '100%', background: (request.ai_completeness_score || 0) > 80 ? '#10b981' : '#f59e0b' }} />
-                                                </div>
-                                                <span style={{ fontSize: '0.75rem', fontWeight: 800, color: (request.ai_completeness_score || 0) > 80 ? '#10b981' : '#f59e0b' }}>
-                                                    {request.ai_completeness_score || 0}%
-                                                </span>
-                                            </div>
-                                        </td>
-                                        <td style={{ padding: '1.5rem 2rem', textAlign: 'right' }}>
-                                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: 'var(--primary)', fontWeight: 700, fontSize: '0.85rem' }}>
-                                                View <ArrowUpRight size={16} />
-                                            </div>
-                                        </td>
-                                    </tr>
-                                );
-                            })}
-                        </tbody>
-                    </table>
-                </div>
-
-                {requests.length === 0 && (
-                    <div style={{ padding: '6rem', textAlign: 'center' }}>
-                        <div style={{ background: '#f8fafc', width: '80px', height: '80px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem', color: '#cbd5e1' }}>
-                            <CheckCircle2 size={40} />
+                    <div className="glass-card" style={{ padding: '2rem' }}>
+                        <h4 style={{ fontSize: '1rem', fontWeight: 900, color: '#0f172a', marginBottom: '1.5rem', display: 'flex', gap: '10px' }}>
+                            <Target size={20} color="#7c3aed" /> Split by Category
+                        </h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                            {Object.entries(statsData.catMap).map(([cat, count], i) => (
+                                <div key={i} style={{ background: '#f8fafc', padding: '1rem', borderRadius: '16px', border: '1px solid #f1f5f9' }}>
+                                    <p style={{ fontSize: '0.7rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', margin: 0 }}>{cat}</p>
+                                    <p style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0f172a', margin: 0 }}>{count}</p>
+                                </div>
+                            ))}
                         </div>
-                        <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', marginBottom: '0.5rem' }}>Queue is Clear</h3>
-                        <p style={{ color: '#94a3b8', margin: 0, fontWeight: 500, fontSize: '1.1rem' }}>No pending audits found. Good work!</p>
                     </div>
-                )}
+
+                    <button
+                        onClick={() => navigate('/requests')}
+                        className="btn-primary mobile-full"
+                        style={{ padding: '20px', borderRadius: '20px', background: '#0f172a', color: 'white', fontWeight: 900, fontSize: '1rem', gap: '12px' }}
+                    >
+                        View Full Audit Queue <ArrowUpRight size={22} />
+                    </button>
+                </div>
             </div>
 
             <style>{`
-                .hover-row:hover { background: #fbfdff; }
-                .hover-row:hover .bar-tooltip { opacity: 1; transform: translate(-50%, -10px); }
-                
-                .bar-tooltip {
-                    position: absolute; top: -30px; left: 50%; transform: translateX(-50%);
-                    background: #1e293b; color: white; padding: 4px 8px; border-radius: 6px;
-                    font-size: 10px; font-weight: 800; opacity: 0; transition: all 0.2s;
-                    pointer-events: none; white-space: nowrap;
+                .bar-tooltip-v2 {
+                    position: absolute; top: -45px; left: 50%; transform: translateX(-50%);
+                    background: #0f172a; color: white; padding: 6px 12px; border-radius: 8px;
+                    font-size: 11px; font-weight: 800; opacity: 0; transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+                    pointer-events: none; white-space: nowrap; z-index: 10;
                 }
-                .bar-tooltip::after {
-                    content: ''; position: absolute; bottom: -4px; left: 50%; transform: translateX(-50%);
-                    border-left: 4px solid transparent; border-right: 4px solid transparent;
-                    border-top: 4px solid #1e293b;
+                .bar-tooltip-v2::after {
+                    content: ''; position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%);
+                    border-left: 6px solid transparent; border-right: 6px solid transparent;
+                    border-top: 6px solid #0f172a;
                 }
-
-                .loader-ring {
-                    width: 48px; height: 48px; border: 4px solid #f3f3f3; border-top: 4px solid #2563eb;
-                    border-radius: 50%; animation: spin 1s linear infinite;
-                }
+                .glass-card:hover .bar-tooltip-v2 { opacity: 1; transform: translate(-50%, -5px); }
+                .loader-ring { width: 48px; height: 48px; border: 4px solid #f3f3f3; border-top: 4px solid #2563eb; border-radius: 50%; animation: spin 1s linear infinite; }
                 @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
             `}</style>
         </div>

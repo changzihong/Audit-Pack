@@ -1,107 +1,112 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { analyzeRequest } from '../lib/openai';
 import {
-    Building2, Info, Upload, Sparkles, Loader2,
-    AlertCircle, CheckCircle2, ArrowRight, PartyPopper, Check, Calendar, FileText, X, Edit3
+    Save, ArrowLeft, Upload, Sparkles, AlertCircle,
+    CheckCircle, ShieldCheck, Trash2, Loader2, Info, Building, Wallet, Calendar, FileText, X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { notifyAdminsAndManagers } from '../lib/notifications';
 
 export default function CreateRequest() {
-    const navigate = useNavigate();
     const [searchParams] = useSearchParams();
     const editId = searchParams.get('id');
+    const initialCategory = searchParams.get('category') || 'expense';
 
     const [loading, setLoading] = useState(false);
-    const [fetching, setFetching] = useState(!!editId);
     const [analyzing, setAnalyzing] = useState(false);
-    const [aiFeedback, setAiFeedback] = useState<any>(null);
-    const [userDept, setUserDept] = useState('Engineering');
-    const [showSuccess, setShowSuccess] = useState(false);
-    const [attachments, setAttachments] = useState<File[]>([]);
+    const [navigateBack, setNavigateBack] = useState(false);
+    const [showValidationModal, setShowValidationModal] = useState(false);
+    const [validationMessage, setValidationMessage] = useState('');
+    const navigate = useNavigate();
 
     const [formData, setFormData] = useState({
         title: '',
-        category: 'expense',
-        customCategory: '',
-        amount: '',
+        category: initialCategory,
+        total_amount: '',
         description: '',
-        department: 'Engineering',
-        audit_date: new Date().toISOString().split('T')[0]
+        department: '',
+        audit_date: new Date().toISOString().split('T')[0],
     });
 
-    const categories = [
-        { id: 'expense', label: 'Expense Claim' },
-        { id: 'travel', label: 'Travel Reimbursement' },
-        { id: 'purchase', label: 'Purchase Requisition' },
-        { id: 'other', label: 'Other' },
-    ];
+    const [files, setFiles] = useState<File[]>([]);
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
-    const departments = [
-        'Engineering', 'Finance & Accounting', 'Human Resources',
-        'Operations', 'Sales & Marketing', 'IT Support'
-    ];
+    const [aiInsights, setAiInsights] = useState<{ score: number; summary: string } | null>(null);
 
     useEffect(() => {
-        fetchUserDept();
-        if (editId) fetchExistingRequest();
+        if (editId) fetchEditData();
     }, [editId]);
 
-    const fetchUserDept = async () => {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-            const { data } = await supabase.from('profiles').select('department').eq('id', user.id).single();
-            if (data?.department) {
-                setUserDept(data.department);
-                if (!editId) setFormData(prev => ({ ...prev, department: data.department }));
-            }
+    // Invalidate AI analysis when form data or files change
+    useEffect(() => {
+        if (aiInsights) {
+            setAiInsights(null);
         }
-    };
+    }, [formData, files]);
 
-    const fetchExistingRequest = async () => {
-        try {
-            const { data, error } = await supabase.from('requests').select('*').eq('id', editId).single();
-            if (error) throw error;
-            if (data) {
-                setFormData({
-                    title: data.title,
-                    category: data.category,
-                    customCategory: (data.category === 'other' ? data.description.match(/\(Custom Category: (.*)\)/)?.[1] || '' : ''),
-                    amount: data.amount.toString(),
-                    description: data.description.replace(/\n\(Custom Category: .*\)/, ''),
-                    department: data.department,
-                    audit_date: data.audit_date || new Date().toISOString().split('T')[0]
-                });
-                // Handle existing attachment names if needed as visual-only
-            }
-        } catch (err) {
-            console.error('Error fetching request for edit:', err);
-        } finally {
-            setFetching(false);
+    const fetchEditData = async () => {
+        const { data } = await supabase.from('requests').select('*').eq('id', editId).single();
+        if (data) {
+            setFormData({
+                title: data.title,
+                category: data.category,
+                total_amount: data.total_amount.toString(),
+                description: data.description,
+                department: data.department,
+                audit_date: data.audit_date || new Date().toISOString().split('T')[0],
+            });
+            setAiInsights({ score: data.ai_completeness_score, summary: data.ai_summary });
+            // Note: File fetch simulation not included as backend storage for files isn't set up in this context
         }
     };
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files) {
-            const newFiles = Array.from(e.target.files);
-            setAttachments(prev => [...prev, ...newFiles]);
+            setFiles(Array.from(e.target.files));
         }
     };
 
     const removeFile = (index: number) => {
-        setAttachments(prev => prev.filter((_, i) => i !== index));
+        setFiles(files.filter((_, i) => i !== index));
     };
 
-    const handleAIAnalysis = async () => {
-        if (!formData.title || !formData.description) return;
+    const runAiAnalysis = async () => {
+        if (!formData.description || !formData.title || !formData.total_amount || !formData.department) {
+            setValidationMessage('Please fill in all fields (Title, Amount, Department, Description) before running analysis.');
+            setShowValidationModal(true);
+            return;
+        }
+
         setAnalyzing(true);
+
         try {
-            const fileNames = attachments.map(f => f.name);
-            const result = await analyzeRequest(formData, fileNames);
-            setAiFeedback(result);
-        } catch (e) {
-            console.error(e);
+            const analysis = await analyzeRequest({
+                title: formData.title,
+                audit_date: formData.audit_date,
+                category: formData.category,
+                amount: formData.total_amount,
+                description: formData.description,
+                department: formData.department
+            }, files.map(f => f.name));
+
+            // Format the response for the UI
+            // analyzeRequest returns { completeness_score, summary: string[], feedback: string[] }
+            // We map this to { score, summary }
+            const summaryText = Array.isArray(analysis.summary)
+                ? analysis.summary.map((s: string) => `• ${s}`).join('\n\n')
+                : analysis.summary;
+
+            setAiInsights({
+                score: analysis.completeness_score,
+                summary: summaryText
+            });
+
+        } catch (error) {
+            console.error("AI Analysis failed", error);
+            setValidationMessage("AI service is currently unavailable. Please try again.");
+            setShowValidationModal(true);
         } finally {
             setAnalyzing(false);
         }
@@ -111,302 +116,316 @@ export default function CreateRequest() {
         e.preventDefault();
         setLoading(true);
 
-        try {
-            const { data: { user } } = await supabase.auth.getUser();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
 
-            const fileNames = attachments.map(f => f.name);
-            const finalDescription = formData.description + (formData.category === 'other' ? `\n(Custom Category: ${formData.customCategory})` : '');
+        const payload = {
+            title: formData.title,
+            category: formData.category,
+            total_amount: parseFloat(formData.total_amount),
+            amount: parseFloat(formData.total_amount), // Required by DB schema
+            sst_amount: 0,
+            description: formData.description,
+            department: formData.department,
+            audit_date: formData.audit_date,
+            employee_id: user.id,
+            status: 'pending',
+            ai_completeness_score: aiInsights?.score || 0,
+            ai_summary: aiInsights?.summary || ''
+        };
 
-            const payload = {
-                title: formData.title,
-                category: formData.category,
-                amount: parseFloat(formData.amount),
-                total_amount: parseFloat(formData.amount) || 0,
-                description: finalDescription,
-                status: 'pending',
-                department: formData.department,
-                ai_completeness_score: aiFeedback?.completeness_score || 0,
-                ai_summary: aiFeedback?.summary?.join(' • ') || 'Compliance check pending re-evaluation.',
-                audit_date: formData.audit_date,
-                attachments: fileNames
-            };
+        let error;
+        let createdRequestId = editId;
 
-            let error;
-            if (editId) {
-                const { error: updateError } = await supabase.from('requests').update(payload).eq('id', editId);
-                error = updateError;
-            } else {
-                const { error: insertError } = await supabase.from('requests').insert({ ...payload, employee_id: user?.id });
-                error = insertError;
-            }
-
-            if (error) throw error;
-            setShowSuccess(true);
-            setTimeout(() => navigate('/dashboard'), 2500);
-        } catch (err) {
-            console.error('Submission Error:', err);
-            alert('Error submitting request. Please try again.');
-        } finally {
-            setLoading(false);
+        if (editId) {
+            const { error: err } = await supabase.from('requests').update(payload).eq('id', editId);
+            error = err;
+        } else {
+            const { data: newReq, error: err } = await supabase.from('requests').insert([payload]).select().single();
+            error = err;
+            createdRequestId = newReq?.id;
         }
+
+        if (error) {
+            console.error('Error submitting request:', error);
+            setValidationMessage(`Failed to create request: ${error.message}`);
+            setShowValidationModal(true);
+            setLoading(false);
+            return;
+        }
+
+        // Notify Admins & Managers
+        if (createdRequestId) {
+            await notifyAdminsAndManagers(
+                formData.department,
+                editId ? 'resubmitted' : 'created',
+                formData.title,
+                createdRequestId,
+                user.user_metadata?.full_name || 'An Employee'
+            );
+        }
+
+        navigate('/requests');
     };
 
-    if (fetching) return (
-        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
-            <div className="loader-ring"></div>
-        </div>
-    );
-
     return (
-        <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
+        <div style={{ maxWidth: '1200px', margin: '0 auto', paddingBottom: '5rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '3rem' }} className="mobile-stack mobile-gap-4">
+                <div>
+                    <button onClick={() => navigate(-1)} style={{ background: 'none', border: 'none', color: '#64748b', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginBottom: '1rem', fontWeight: 600 }}>
+                        <ArrowLeft size={18} /> Back
+                    </button>
+                    <h1 style={{ fontSize: '2.5rem', fontWeight: 900, color: '#0f172a', margin: 0, letterSpacing: '-0.02em' }} className="mobile-h1">
+                        {editId ? 'Refine Request' : 'New Audit Documentation'}
+                    </h1>
+                </div>
+            </div>
+
+            <form onSubmit={handleSubmit} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 400px', gap: '2rem' }} className="mobile-grid-1 tablet-stack">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+                    <div className="glass-card" style={{ padding: '2.5rem' }}>
+                        <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#0f172a', marginBottom: '2rem', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <FileText size={20} color="var(--primary)" /> Request Narrative
+                        </h3>
+
+                        <div className="input-group">
+                            <label className="input-label">Project Title / Event Name</label>
+                            <input
+                                required
+                                value={formData.title}
+                                onChange={e => setFormData({ ...formData, title: e.target.value })}
+                                className="input-field"
+                                placeholder="e.g. Q4 Cloud Infrastructure Renewal"
+                            />
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '1.5rem' }} className="mobile-grid-1">
+                            <div className="input-group" style={{ marginBottom: 0 }}>
+                                <label className="input-label">Audit Category</label>
+                                <select
+                                    className="input-field"
+                                    value={formData.category}
+                                    onChange={e => setFormData({ ...formData, category: e.target.value })}
+                                >
+                                    <option value="expense">Expense Reimbursement</option>
+                                    <option value="travel">Corporate Travel</option>
+                                    <option value="purchase">Service Procurement</option>
+                                    <option value="other">General Compliance</option>
+                                </select>
+                            </div>
+                            <div className="input-group" style={{ marginBottom: 0 }}>
+                                <label className="input-label">Department</label>
+                                <select
+                                    required
+                                    className="input-field"
+                                    value={formData.department}
+                                    onChange={e => setFormData({ ...formData, department: e.target.value })}
+                                >
+                                    <option value="">Select Department</option>
+                                    <option value="Engineering">Engineering</option>
+                                    <option value="Finance">Finance</option>
+                                    <option value="Human Resources">Human Resources</option>
+                                    <option value="Operations">Operations</option>
+                                    <option value="Sales & Marketing">Sales & Marketing</option>
+                                    <option value="IT Support">IT Support</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '1.5rem' }} className="mobile-grid-1">
+                            <div className="input-group" style={{ marginBottom: 0 }}>
+                                <label className="input-label">Transaction Value (RM)</label>
+                                <input
+                                    required
+                                    type="number"
+                                    step="0.01"
+                                    className="input-field"
+                                    value={formData.total_amount}
+                                    onChange={e => setFormData({ ...formData, total_amount: e.target.value })}
+                                    placeholder="0.00"
+                                />
+                            </div>
+                            <div className="input-group" style={{ marginBottom: 0 }}>
+                                <label className="input-label">Effective Date</label>
+                                <input
+                                    required
+                                    type="date"
+                                    className="input-field"
+                                    value={formData.audit_date}
+                                    onChange={e => setFormData({ ...formData, audit_date: e.target.value })}
+                                />
+                            </div>
+                        </div>
+
+                        <div className="input-group" style={{ marginBottom: 0 }}>
+                            <label className="input-label">Detailed Business Justification</label>
+                            <textarea
+                                required
+                                rows={6}
+                                className="input-field"
+                                value={formData.description}
+                                onChange={e => setFormData({ ...formData, description: e.target.value })}
+                                style={{ resize: 'none' }}
+                                placeholder="Explain the purpose of this expenditure for internal audit review..."
+                            />
+                        </div>
+                    </div>
+
+                    <div className="glass-card" style={{ padding: '2rem', border: '2px dashed var(--border)', background: '#f8fafc' }}>
+                        <div style={{ textAlign: 'center', padding: '1.5rem' }}>
+                            <input
+                                type="file"
+                                multiple
+                                ref={fileInputRef}
+                                onChange={handleFileChange}
+                                style={{ display: 'none' }}
+                            />
+                            <div
+                                onClick={() => fileInputRef.current?.click()}
+                                style={{ cursor: 'pointer' }}
+                            >
+                                <div style={{ background: 'white', width: '64px', height: '64px', borderRadius: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem', boxShadow: 'var(--shadow-sm)' }}>
+                                    <Upload size={28} color="#94a3b8" />
+                                </div>
+                                <h4 style={{ fontSize: '1.1rem', fontWeight: 800, margin: '0 0 8px 0' }}>Support Evidence</h4>
+                                <p style={{ color: '#64748b', fontSize: '0.9rem', marginBottom: '1.5rem' }}>Click to upload receipts or invoices</p>
+                            </div>
+
+                            <button type="button" onClick={() => fileInputRef.current?.click()} className="btn-secondary" style={{ borderRadius: '12px' }}>
+                                Choose Files
+                            </button>
+
+                            {files.length > 0 && (
+                                <div style={{ marginTop: '2rem', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                    <p style={{ fontSize: '0.8rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Attached Files:</p>
+                                    {files.map((file, idx) => (
+                                        <div key={idx} style={{ background: 'white', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <span style={{ fontSize: '0.9rem', color: '#334155' }}>{file.name}</span>
+                                            <button type="button" onClick={() => removeFile(idx)} style={{ color: '#ef4444', background: 'none' }}>
+                                                <X size={16} />
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+                    <div className="glass-card" style={{ padding: '2rem', background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', color: 'white', border: 'none' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                            <h4 style={{ margin: 0, fontWeight: 800, fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <Sparkles size={18} color="#60a5fa" /> AI Verification
+                            </h4>
+                            {aiInsights && (
+                                <div style={{ background: '#60a5fa', color: '#0f172a', padding: '4px 10px', borderRadius: '8px', fontWeight: 900, fontSize: '0.85rem' }}>
+                                    {aiInsights.score}%
+                                </div>
+                            )}
+                        </div>
+
+                        {aiInsights ? (
+                            <div style={{ background: 'rgba(255,255,255,0.05)', padding: '1.5rem', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.1)' }}>
+                                <p style={{ margin: 0, fontSize: '0.9rem', lineHeight: 1.6, color: 'rgba(255,255,255,0.8)', whiteSpace: 'pre-wrap' }}>
+                                    {aiInsights.summary}
+                                </p>
+                            </div>
+                        ) : (
+                            <div style={{ textAlign: 'center', padding: '1.5rem' }}>
+                                <p style={{ fontSize: '0.85rem', color: 'rgba(255,255,255,0.4)', marginBottom: '1.5rem' }}>
+                                    {files.length > 0 || formData.description
+                                        ? "Ready to scan for policy alignment."
+                                        : "Fill in details to enable smart scan."}
+                                </p>
+                                <button
+                                    type="button"
+                                    onClick={runAiAnalysis}
+                                    disabled={analyzing}
+                                    style={{ width: '100%', padding: '14px', borderRadius: '14px', background: '#2563eb', color: 'white', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', opacity: analyzing ? 0.7 : 1 }}
+                                >
+                                    {analyzing ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}
+                                    {analyzing ? 'Analyzing Request...' : 'Run Analysis'}
+                                </button>
+                            </div>
+                        )}
+                    </div>
+
+                    <div style={{ background: '#fef3c7', padding: '1.5rem', borderRadius: '24px', border: '1px solid #fde68a', display: 'flex', gap: '12px' }}>
+                        <Info size={20} color="#d97706" style={{ flexShrink: 0, marginTop: '2px' }} />
+                        <p style={{ margin: 0, fontSize: '0.85rem', color: '#92400e', fontWeight: 500, lineHeight: 1.5 }}>
+                            All submissions are final and strictly monitored by internal compliance protocols.
+                        </p>
+                    </div>
+
+                    <button
+                        type="submit"
+                        disabled={loading}
+                        className="btn-primary"
+                        style={{ width: '100%', padding: '20px', borderRadius: '20px', fontSize: '1.1rem', fontWeight: 900, gap: '12px' }}
+                    >
+                        {loading ? <Loader2 size={24} className="animate-spin" /> : <Save size={24} />}
+                        {loading ? 'Processing...' : (editId ? 'Resubmit Request' : 'Submit for Review')}
+                    </button>
+
+                    {editId && (
+                        <p style={{ textAlign: 'center', fontSize: '0.85rem', color: '#64748b', fontWeight: 600 }}>Editing: {editId.slice(0, 8)}</p>
+                    )}
+                </div>
+            </form>
+
+            {/* VALIDATION MODAL */}
             <AnimatePresence>
-                {showSuccess && (
+                {showValidationModal && (
                     <motion.div
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
                         style={{
-                            position: 'fixed', inset: 0, zIndex: 1000,
-                            background: 'rgba(15, 23, 42, 0.8)',
-                            backdropFilter: 'blur(8px)',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem'
+                            position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)',
+                            zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem'
                         }}
                     >
                         <motion.div
-                            initial={{ scale: 0.9, y: 20 }}
-                            animate={{ scale: 1, y: 0 }}
+                            initial={{ scale: 0.95, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ scale: 0.95, opacity: 0 }}
+                            onClick={(e) => e.stopPropagation()}
                             style={{
-                                background: 'white', padding: '3rem', borderRadius: '32px',
-                                maxWidth: '440px', width: '100%', textAlign: 'center',
-                                boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)'
+                                background: 'white', borderRadius: '24px', padding: '2rem', width: '100%', maxWidth: '400px',
+                                boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', textAlign: 'center'
                             }}
                         >
                             <div style={{
-                                width: '80px', height: '80px', background: '#d1fae5', color: '#059669',
-                                borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                margin: '0 auto 2rem', boxShadow: '0 0 0 10px rgba(209, 250, 229, 0.3)'
+                                width: '64px', height: '64px', borderRadius: '20px', background: '#fef2f2', color: '#dc2626',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem'
                             }}>
-                                <PartyPopper size={40} />
+                                <AlertCircle size={32} />
                             </div>
-                            <h2 style={{ fontSize: '2rem', fontWeight: 800, color: '#0f172a', marginBottom: '1rem' }}>{editId ? 'Resubmitted!' : 'Audit Submitted!'}</h2>
-                            <p style={{ color: '#64748b', fontSize: '1.1rem', marginBottom: '2rem', lineHeight: 1.6 }}>
-                                Your audit request has been registered and assigned to <strong>{formData.department}</strong> reviewers.
+                            <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', margin: '0 0 0.5rem 0' }}>
+                                Missing Details
+                            </h3>
+                            <p style={{ color: '#64748b', margin: '0 0 2rem 0', lineHeight: 1.5 }}>
+                                {validationMessage}
                             </p>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', color: '#059669', fontWeight: 700 }}>
-                                <Loader2 className="animate-spin" size={18} />
-                                Redirecting to dashboard...
-                            </div>
+                            <button
+                                onClick={() => setShowValidationModal(false)}
+                                style={{
+                                    width: '100%', padding: '14px', borderRadius: '14px', border: 'none', background: '#0f172a',
+                                    color: 'white', fontWeight: 700, cursor: 'pointer', fontSize: '1rem'
+                                }}
+                            >
+                                OK, I'll fix it
+                            </button>
                         </motion.div>
                     </motion.div>
                 )}
             </AnimatePresence>
 
-            <div style={{ marginBottom: '3rem' }}>
-                <h1 style={{ fontSize: '2.5rem', fontWeight: 800, color: '#0f172a', marginBottom: '0.5rem', letterSpacing: '-0.02em' }}>{editId ? 'Refine Audit' : 'Initiate Audit'}</h1>
-                <p style={{ color: '#64748b', fontSize: '1.1rem', fontWeight: 500 }}>{editId ? 'Update details to address requested changes.' : 'Upload your expense or purchase details for real-time compliance checking.'}</p>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 360px', gap: '3rem', alignItems: 'start' }}>
-                <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-                    <div className="glass-card" style={{ padding: '2.5rem', border: '1.5px solid #f1f5f9' }}>
-                        <div className="input-group">
-                            <label className="input-label" style={{ fontSize: '0.85rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Audit Title</label>
-                            <input
-                                type="text"
-                                className="input-field"
-                                placeholder="e.g., Q1 Hardware Procurement for IT"
-                                value={formData.title}
-                                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                                style={{ borderRadius: '12px', padding: '14px 18px', fontSize: '1rem' }}
-                                required
-                            />
-                        </div>
-
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
-                            <div className="input-group">
-                                <label className="input-label" style={{ fontSize: '0.85rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Transaction Date</label>
-                                <div style={{ position: 'relative' }}>
-                                    <Calendar size={18} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-                                    <input
-                                        type="date"
-                                        className="input-field"
-                                        value={formData.audit_date}
-                                        onChange={(e) => setFormData({ ...formData, audit_date: e.target.value })}
-                                        style={{ paddingLeft: '48px', borderRadius: '12px' }}
-                                        required
-                                    />
-                                </div>
-                            </div>
-                            <div className="input-group">
-                                <label className="input-label" style={{ fontSize: '0.85rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Reviewing Department</label>
-                                <div style={{ position: 'relative' }}>
-                                    <Building2 size={18} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-                                    <select
-                                        className="input-field"
-                                        style={{ paddingLeft: '48px', borderRadius: '12px' }}
-                                        value={formData.department}
-                                        onChange={(e) => setFormData({ ...formData, department: e.target.value })}
-                                    >
-                                        {departments.map(dept => (
-                                            <option key={dept} value={dept}>{dept}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '1.5rem' }}>
-                            <div className="input-group">
-                                <label className="input-label" style={{ fontSize: '0.85rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Submission Category</label>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                                    <select
-                                        className="input-field"
-                                        value={formData.category}
-                                        onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                                        style={{ borderRadius: '12px' }}
-                                    >
-                                        {categories.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
-                                    </select>
-
-                                    <AnimatePresence>
-                                        {formData.category === 'other' && (
-                                            <motion.div
-                                                initial={{ opacity: 0, height: 0 }}
-                                                animate={{ opacity: 1, height: 'auto' }}
-                                                exit={{ opacity: 0, height: 0 }}
-                                            >
-                                                <div style={{ position: 'relative' }}>
-                                                    <Edit3 size={16} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: 'var(--primary)' }} />
-                                                    <input
-                                                        type="text"
-                                                        placeholder="Specify category..."
-                                                        className="input-field"
-                                                        style={{ paddingLeft: '44px', borderRadius: '12px', background: '#f0f9ff', border: '1.5px solid #bae6fd' }}
-                                                        value={formData.customCategory}
-                                                        onChange={(e) => setFormData({ ...formData, customCategory: e.target.value })}
-                                                        required
-                                                    />
-                                                </div>
-                                            </motion.div>
-                                        )}
-                                    </AnimatePresence>
-                                </div>
-                            </div>
-                            <div className="input-group">
-                                <label className="input-label" style={{ fontSize: '0.85rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Amount (RM)</label>
-                                <input
-                                    type="number"
-                                    step="0.01"
-                                    className="input-field"
-                                    placeholder="0.00"
-                                    value={formData.amount}
-                                    onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
-                                    style={{ borderRadius: '12px', textAlign: 'right', fontWeight: 700 }}
-                                    required
-                                />
-                            </div>
-                        </div>
-
-                        <div className="input-group">
-                            <label className="input-label" style={{ fontSize: '0.85rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Description & Business Justification</label>
-                            <textarea
-                                className="input-field"
-                                rows={4}
-                                placeholder="Detail the business necessity. Include project IDs or specific client names if applicable..."
-                                value={formData.description}
-                                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                                style={{ borderRadius: '16px', padding: '16px', fontSize: '1rem', lineHeight: 1.6 }}
-                                required
-                            />
-                        </div>
-
-                        <div className="input-group">
-                            <label className="input-label" style={{ fontSize: '0.85rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Upload Attachments</label>
-                            <div style={{ border: '2px dashed #e2e8f0', borderRadius: '16px', padding: '2rem', textAlign: 'center', background: '#f8fafc', transition: 'all 0.2s', cursor: 'pointer' }}
-                                onDragOver={(e) => e.preventDefault()}
-                                onClick={() => document.getElementById('file-upload')?.click()}
-                            >
-                                <input type="file" id="file-upload" style={{ display: 'none' }} multiple onChange={handleFileChange} />
-                                <Upload size={32} style={{ color: '#94a3b8', marginBottom: '1rem' }} />
-                                <p style={{ margin: 0, fontSize: '0.95rem', color: '#1e293b', fontWeight: 600 }}>Click or drag files to upload</p>
-                                <p style={{ margin: '4px 0 0 0', fontSize: '0.8rem', color: '#94a3b8' }}>PDF, JPG, PNG or receipts (Max 10MB)</p>
-                            </div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '1rem' }}>
-                                {attachments.map((file, i) => (
-                                    <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'white', borderRadius: '10px', border: '1px solid #eef2f6' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                            <FileText size={16} color="var(--primary)" />
-                                            <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#475569' }}>{file.name}</span>
-                                        </div>
-                                        <button type="button" onClick={() => removeFile(i)} style={{ color: '#ef4444', background: 'none', border: 'none', padding: '4px', cursor: 'pointer' }}>
-                                            <X size={16} />
-                                        </button>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-
-                        <div style={{ display: 'flex', gap: '1.5rem', marginTop: '1rem', justifyContent: 'center' }}>
-                            <button type="button" onClick={() => navigate('/dashboard')} className="btn-secondary" style={{ padding: '14px 40px', borderRadius: '14px', fontWeight: 700 }}>
-                                Discard
-                            </button>
-                            <button type="submit" className="btn-primary" style={{ padding: '14px 40px', borderRadius: '14px', fontWeight: 700, fontSize: '1rem' }} disabled={loading}>
-                                {loading ? <Loader2 size={24} className="animate-spin" /> : (editId ? 'Resubmit For Review' : 'Register Audit Request')}
-                            </button>
-                        </div>
-                    </div>
-                </form>
-
-                <aside style={{ position: 'sticky', top: '2rem', display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-                    {/* AI Preview Card */}
-                    <div className="glass-card" style={{ padding: '2rem', border: '1.5px solid #eff6ff', background: 'linear-gradient(to bottom, #ffffff, #f0f7ff)' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '2rem' }}>
-                            <div style={{ background: '#2563eb', color: 'white', padding: '8px', borderRadius: '10px' }}>
-                                <Sparkles size={20} />
-                            </div>
-                            <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#1e3a8a', margin: 0 }}>Smart Checker</h3>
-                        </div>
-                        <AnimatePresence mode="wait">
-                            {analyzing ? (
-                                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} style={{ textAlign: 'center', padding: '2rem 1rem', background: 'white', borderRadius: '16px', border: '1px dashed #bfdbfe' }}>
-                                    <Loader2 size={32} className="animate-spin" style={{ color: '#2563eb', margin: '0 auto 1rem' }} />
-                                    <p style={{ fontSize: '0.95rem', color: '#1e3a8a', fontWeight: 600 }}>Analyzing compliance standards...</p>
-                                </motion.div>
-                            ) : aiFeedback ? (
-                                <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }}>
-                                    <div style={{ marginBottom: '2rem' }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px', alignItems: 'baseline' }}>
-                                            <span style={{ fontSize: '0.9rem', fontWeight: 800, color: '#1e293b' }}>Completeness</span>
-                                            <span style={{ fontSize: '1.25rem', fontWeight: 800, color: '#2563eb' }}>{aiFeedback.completeness_score}%</span>
-                                        </div>
-                                        <div style={{ height: '10px', background: '#f1f5f9', borderRadius: '5px', overflow: 'hidden', border: '1px solid #eef2f6' }}>
-                                            <motion.div initial={{ width: 0 }} animate={{ width: `${aiFeedback.completeness_score}%` }} style={{ height: '100%', background: aiFeedback.completeness_score > 80 ? '#10b981' : aiFeedback.completeness_score > 50 ? '#f59e0b' : '#ef4444' }} />
-                                        </div>
-                                    </div>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                                        {aiFeedback.summary?.map((item: string, i: number) => (
-                                            <div key={i} style={{ display: 'flex', gap: '10px', fontSize: '0.85rem', color: '#475569', background: 'white', padding: '10px 14px', borderRadius: '12px', border: '1px solid #f1f5f9', fontWeight: 500 }}>
-                                                <div style={{ color: '#10b981', flexShrink: 0 }}><Check size={16} /></div>
-                                                {item}
-                                            </div>
-                                        ))}
-                                    </div>
-                                    <button type="button" onClick={handleAIAnalysis} style={{ width: '100%', marginTop: '1.5rem', padding: '12px', borderRadius: '12px', border: '1.5px solid #bfdbfe', background: '#eff6ff', color: '#2563eb', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                                        Re-evaluate Request
-                                    </button>
-                                </motion.div>
-                            ) : (
-                                <div style={{ textAlign: 'center', padding: '2rem 1.5rem', background: 'white', borderRadius: '16px', border: '1px dashed #e2e8f0' }}>
-                                    <Sparkles size={32} style={{ color: '#cbd5e1', marginBottom: '1rem' }} />
-                                    <p style={{ fontSize: '0.9rem', color: '#94a3b8', fontWeight: 500, lineHeight: 1.5, marginBottom: '1.5rem' }}>Provide a detailed description to activate AI compliance checking.</p>
-                                    <button type="button" onClick={handleAIAnalysis} disabled={!formData.title || !formData.description} className="btn-primary" style={{ width: '100%', padding: '12px', borderRadius: '12px', fontSize: '0.85rem', fontWeight: 700, gap: '8px' }}>
-                                        <Sparkles size={16} /> Analyze Compliance
-                                    </button>
-                                </div>
-                            )}
-                        </AnimatePresence>
-                    </div>
-                </aside>
-            </div>
+            <style>{`
+                .loader-ring { width: 48px; height: 48px; border: 4px solid #f3f3f3; border-top: 4px solid #2563eb; border-radius: 50%; animation: spin 1s linear infinite; }
+                @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+            `}</style>
         </div>
     );
 }

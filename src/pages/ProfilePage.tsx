@@ -87,11 +87,11 @@ export default function ProfilePage() {
     return (
         <div style={{ maxWidth: '800px', margin: '0 auto' }}>
             <div style={{ marginBottom: '3rem' }}>
-                <h1 style={{ fontSize: '2.5rem', fontWeight: 800, color: '#0f172a', marginBottom: '0.5rem', letterSpacing: '-0.02em' }}>Profile Settings</h1>
-                <p style={{ color: '#64748b', fontSize: '1.1rem', fontWeight: 500 }}>Manage your personal details and account security.</p>
+                <h1 style={{ fontSize: '2.5rem', fontWeight: 800, color: '#0f172a', marginBottom: '0.5rem', letterSpacing: '-0.02em' }} className="mobile-h1">Profile Settings</h1>
+                <p style={{ color: '#64748b', fontSize: '1.1rem', fontWeight: 500 }} className="mobile-hide">Manage your personal details and account security.</p>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr', gap: '2rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 1.5fr', gap: '2rem' }} className="mobile-grid-1">
                 {/* Visual Identity Card */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                     <div className="glass-card" style={{ padding: '2rem', textAlign: 'center', background: 'linear-gradient(to bottom, #ffffff, #f8fafc)' }}>
@@ -119,7 +119,7 @@ export default function ProfilePage() {
                 </div>
 
                 {/* Form Card */}
-                <div className="glass-card" style={{ padding: '2.5rem', border: '1.5px solid #f1f5f9' }}>
+                <div className="glass-card mobile-p-md" style={{ padding: '2.5rem', border: '1.5px solid #f1f5f9' }}>
                     <form onSubmit={handleUpdateProfile} style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
                         <AnimatePresence>
                             {showSuccess && (
@@ -180,13 +180,18 @@ export default function ProfilePage() {
                         </div>
 
                         <div style={{ display: 'flex', justifyContent: 'center', marginTop: '1.5rem' }}>
-                            <button type="submit" className="btn-primary" style={{ padding: '0 40px', height: '52px', borderRadius: '14px', gap: '10px', fontSize: '1rem', fontWeight: 700 }} disabled={updating}>
+                            <button type="submit" className="btn-primary mobile-full" style={{ padding: '0 40px', height: '52px', borderRadius: '14px', gap: '10px', fontSize: '1rem', fontWeight: 700 }} disabled={updating}>
                                 {updating ? <Loader2 size={24} className="animate-spin" /> : <><Save size={20} /> Save Changes</>}
                             </button>
                         </div>
                     </form>
                 </div>
             </div>
+
+            <style>{`
+                .loader-ring { width: 48px; height: 48px; border: 4px solid #f3f3f3; border-top: 4px solid #2563eb; border-radius: 50%; animation: spin 1s linear infinite; }
+                @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+            `}</style>
         </div>
     );
 }

@@ -76,23 +76,23 @@ export default function ManageUsers() {
                     <div style={{ background: '#1e293b', color: 'white', padding: '10px', borderRadius: '12px' }}>
                         <Users size={24} />
                     </div>
-                    <h1 style={{ fontSize: '2.5rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>Team Management</h1>
+                    <h1 style={{ fontSize: '2.5rem', fontWeight: 800, color: '#0f172a', margin: 0 }} className="mobile-h1">Team Management</h1>
                 </div>
-                <p style={{ color: '#64748b', fontSize: '1.1rem', fontWeight: 500 }}>
+                <p style={{ color: '#64748b', fontSize: '1.1rem', fontWeight: 500 }} className="mobile-hide">
                     Manage roles, departmental assignments, and access control.
                 </p>
             </div>
 
             <div className="glass-card" style={{ padding: 0, overflow: 'hidden', border: '1.5px solid #f1f5f9', borderRadius: '24px' }}>
-                <div style={{ padding: '2rem', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ position: 'relative', width: '320px' }}>
+                <div style={{ padding: '2rem', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} className="mobile-stack mobile-gap-4 mobile-p-md">
+                    <div style={{ position: 'relative', width: '320px' }} className="mobile-full">
                         <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
                         <input type="text" placeholder="Search team members..." style={{ width: '100%', padding: '10px 12px 10px 36px', borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '0.9rem', outline: 'none' }} />
                     </div>
                 </div>
 
                 <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '800px' }}>
                         <thead>
                             <tr style={{ background: '#f8fafc' }}>
                                 <th style={{ padding: '1.25rem 2rem', color: '#64748b', fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Member</th>

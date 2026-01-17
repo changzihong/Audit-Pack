@@ -1,5 +1,5 @@
 import { Link, Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, PlusCircle, User, LogOut, Bell, Search, ShieldCheck, Archive, Users, Check, Clock } from 'lucide-react';
+import { LayoutDashboard, PlusCircle, User, LogOut, Bell, ShieldCheck, Archive, Users, Check, Clock, FileText, Menu, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useEffect, useState } from 'react';
@@ -11,6 +11,7 @@ export default function Shell({ session }: { session: any }) {
     const [profile, setProfile] = useState<Profile | null>(null);
     const [notifications, setNotifications] = useState<any[]>([]);
     const [showNotifications, setShowNotifications] = useState(false);
+    const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
     useEffect(() => {
         if (session?.user?.id) {
@@ -32,6 +33,11 @@ export default function Shell({ session }: { session: any }) {
             return () => { supabase.removeChannel(channel); };
         }
     }, [session]);
+
+    // Close mobile menu on navigation
+    useEffect(() => {
+        setMobileMenuOpen(false);
+    }, [location.pathname]);
 
     const fetchProfile = async () => {
         const { data } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
@@ -56,12 +62,15 @@ export default function Shell({ session }: { session: any }) {
     const markAsRead = async (id: string) => {
         await supabase.from('notifications').update({ is_read: true }).eq('id', id);
         setNotifications(notifications.map(n => n.id === id ? { ...n, is_read: true } : n));
+        setShowNotifications(false);
+        navigate('/requests'); // Take user to inbox to see the update
     };
 
     const navItems = [
-        { path: '/dashboard', label: 'Active Requests', icon: LayoutDashboard },
-        { path: '/archive', label: 'Archive', icon: Archive },
+        { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+        { path: '/requests', label: 'Request Center', icon: FileText },
         { path: '/create', label: 'New Request', icon: PlusCircle },
+        { path: '/archive', label: 'Archive', icon: Archive },
         { path: '/profile', label: 'Account Settings', icon: User },
     ];
 
@@ -72,226 +81,257 @@ export default function Shell({ session }: { session: any }) {
     const unreadCount = notifications.filter(n => !n.is_read).length;
 
     return (
-        <div style={{ display: 'flex', height: '100vh', width: '100vw', background: '#f8fafc', overflow: 'hidden' }}>
-            {/* Sidebar */}
-            <aside style={{
-                width: '280px',
-                minWidth: '280px',
+        <div style={{ display: 'flex', height: '100vh', width: '100vw', background: '#f8fafc', overflow: 'hidden', flexDirection: 'column' }}>
+
+            {/* Mobile Header */}
+            <header className="mobile-flex-show" style={{
+                height: '64px',
                 background: '#0f172a',
                 color: 'white',
-                padding: '2.5rem 1.5rem',
-                display: 'flex',
-                flexDirection: 'column',
-                height: '100%'
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '0 1.25rem',
+                zIndex: 100,
+                boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'
             }}>
-                <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '3.5rem', paddingLeft: '8px' }}>
-                        <div style={{ background: 'var(--primary)', color: 'white', padding: '10px', borderRadius: '12px', boxShadow: '0 4px 12px rgba(37, 99, 235, 0.3)' }}>
-                            <ShieldCheck size={28} />
-                        </div>
-                        <h1 style={{ fontSize: '1.5rem', fontWeight: 800, margin: 0, letterSpacing: '-0.02em', fontFamily: 'Outfit' }}>Audit Pack</h1>
-                    </div>
-
-                    <nav style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        {navItems.map((item) => {
-                            const Icon = item.icon;
-                            // Check for both exact path and query params versions for active state
-                            const isActive = location.pathname === item.path || (item.path === '/create' && location.pathname === '/create');
-                            return (
-                                <Link
-                                    key={item.path}
-                                    to={item.path}
-                                    style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '12px',
-                                        padding: '14px 18px',
-                                        borderRadius: '14px',
-                                        background: isActive ? 'rgba(37, 99, 235, 0.15)' : 'transparent',
-                                        color: isActive ? '#60a5fa' : 'rgba(255, 255, 255, 0.5)',
-                                        fontWeight: isActive ? 600 : 500,
-                                        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                                        border: isActive ? '1px solid rgba(37, 99, 235, 0.2)' : '1px solid transparent'
-                                    }}
-                                >
-                                    <Icon size={20} />
-                                    {item.label}
-                                </Link>
-                            );
-                        })}
-                    </nav>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <ShieldCheck size={24} color="var(--primary)" />
+                    <span style={{ fontWeight: 800, fontSize: '1.2rem', fontFamily: 'Outfit' }}>Audit Pack</span>
                 </div>
+                <button
+                    onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                    style={{ background: 'none', color: 'white', padding: '8px', display: 'flex' }}
+                >
+                    {mobileMenuOpen ? <X size={28} /> : <Menu size={28} />}
+                </button>
+            </header>
 
-                <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.08)', paddingTop: '2rem' }}>
-                    <div style={{
-                        padding: '16px',
-                        borderRadius: '16px',
-                        background: 'rgba(255, 255, 255, 0.03)',
-                        marginBottom: '1.5rem',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '14px',
-                        border: '1px solid rgba(255, 255, 255, 0.05)'
-                    }}>
-                        <div style={{
-                            width: 44,
-                            height: 44,
-                            borderRadius: '12px',
-                            background: 'linear-gradient(135deg, #1e40af, #2563eb)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            boxShadow: '0 4px 10px rgba(0,0,0,0.2)'
-                        }}>
-                            <User size={22} color="white" />
-                        </div>
-                        <div style={{ overflow: 'hidden' }}>
-                            <p style={{ margin: 0, fontWeight: 600, fontSize: '0.9rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                {profile?.full_name || session?.user?.email?.split('@')[0]}
-                            </p>
-                            <p style={{ margin: 0, fontSize: '0.75rem', color: 'rgba(255, 255, 255, 0.4)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.05em' }}>
-                                {profile?.role} • {profile?.department}
-                            </p>
-                        </div>
-                    </div>
-                    <button
-                        onClick={handleLogout}
-                        style={{
-                            width: '100%',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: '10px',
-                            padding: '12px',
-                            borderRadius: '12px',
-                            background: 'transparent',
-                            color: '#ef4444',
-                            border: '1.5px solid rgba(239, 68, 68, 0.2)',
-                            fontWeight: 600,
-                            fontSize: '0.9rem',
-                            transition: 'all 0.2s ease-in-out'
-                        }}
-                        onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(239, 68, 68, 0.05)'}
-                        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                    >
-                        <LogOut size={18} />
-                        Sign Out
-                    </button>
-                </div>
-            </aside>
+            <div style={{ display: 'flex', flex: 1, overflow: 'hidden', position: 'relative' }}>
 
-            {/* Main Content */}
-            <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-                <header style={{
-                    height: '80px',
-                    padding: '0 2.5rem',
-                    background: 'white',
-                    borderBottom: '1px solid #eef2f6',
+                {/* Sidebar (Desktop) / Mobile Drawer */}
+                <aside style={{
+                    width: '280px',
+                    minWidth: '280px',
+                    background: '#0f172a',
+                    color: 'white',
+                    padding: '2.5rem 1.5rem',
                     display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    flexShrink: 0
-                }}>
-                    <div style={{ position: 'relative', width: '380px' }}>
-                        <Search size={18} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-                        <input
-                            type="text"
-                            placeholder="Find requests, people or audits..."
+                    flexDirection: 'column',
+                    height: '100%',
+                    zIndex: 90,
+                    transition: 'transform 0.3s ease',
+                    position: window.innerWidth <= 768 ? 'absolute' : 'relative',
+                    transform: window.innerWidth <= 768 && !mobileMenuOpen ? 'translateX(-100%)' : 'translateX(0)',
+                    boxShadow: mobileMenuOpen ? '10px 0 30px rgba(0,0,0,0.3)' : 'none'
+                }} className={mobileMenuOpen ? 'mobile-show' : 'mobile-hide'}>
+                    <div style={{ flex: 1 }}>
+                        <div className="mobile-hide" style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '3.5rem', paddingLeft: '8px' }}>
+                            <div style={{ background: 'var(--primary)', color: 'white', padding: '10px', borderRadius: '12px', boxShadow: '0 4px 12px rgba(37, 99, 235, 0.3)' }}>
+                                <ShieldCheck size={28} />
+                            </div>
+                            <h1 style={{ fontSize: '1.5rem', fontWeight: 800, margin: 0, letterSpacing: '-0.02em', fontFamily: 'Outfit' }}>Audit Pack</h1>
+                        </div>
+
+                        <nav style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {navItems.map((item) => {
+                                const Icon = item.icon;
+                                const isActive = location.pathname === item.path;
+                                return (
+                                    <Link
+                                        key={item.path}
+                                        to={item.path}
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '14px',
+                                            padding: '14px 18px',
+                                            borderRadius: '16px',
+                                            color: isActive ? 'white' : 'rgba(255,255,255,0.5)',
+                                            background: isActive ? 'rgba(255,255,255,0.08)' : 'transparent',
+                                            fontWeight: 600,
+                                            fontSize: '0.95rem',
+                                            transition: 'all 0.2s'
+                                        }}
+                                    >
+                                        <Icon size={20} style={{ color: isActive ? 'var(--primary-light)' : 'inherit' }} />
+                                        {item.label}
+                                    </Link>
+                                );
+                            })}
+                        </nav>
+                    </div>
+
+                    {/* Sidebar Footer */}
+                    <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '2rem', marginTop: '2rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '0 8px', marginBottom: '1.5rem' }}>
+                            <div style={{ background: 'rgba(255,255,255,0.1)', width: '40px', height: '40px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <User size={20} color="var(--primary-light)" />
+                            </div>
+                            <div style={{ overflow: 'hidden' }}>
+                                <p style={{ margin: 0, fontSize: '0.9rem', fontWeight: 700, whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{profile?.full_name}</p>
+                                <p style={{ margin: 0, fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', fontWeight: 800 }}>{profile?.role}</p>
+                            </div>
+                        </div>
+
+                        <button
+                            onClick={handleLogout}
                             style={{
                                 width: '100%',
-                                padding: '12px 16px 12px 48px',
-                                borderRadius: '14px',
-                                border: '1.5px solid #f1f5f9',
-                                background: '#f8fafc',
-                                fontSize: '0.9rem',
-                                transition: 'all 0.2s',
-                                outline: 'none'
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '12px',
+                                padding: '14px',
+                                borderRadius: '16px',
+                                color: '#f87171',
+                                background: 'rgba(239, 68, 68, 0.05)',
+                                fontSize: '0.95rem',
+                                fontWeight: 700,
+                                border: '1px solid rgba(239, 68, 68, 0.1)'
                             }}
-                        />
+                        >
+                            <LogOut size={20} /> Sign Out
+                        </button>
                     </div>
-                    <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'center' }}>
-                        <div style={{ position: 'relative' }}>
-                            <button
-                                onClick={() => setShowNotifications(!showNotifications)}
-                                style={{ position: 'relative', background: '#f8fafc', padding: '10px', borderRadius: '12px', color: '#64748b', border: '1px solid #f1f5f9', cursor: 'pointer' }}
-                            >
-                                <Bell size={20} />
-                                {unreadCount > 0 && (
-                                    <span style={{ position: 'absolute', top: '-4px', right: '-4px', minWidth: '18px', height: '18px', background: '#ef4444', color: 'white', borderRadius: '50%', fontSize: '10px', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid white' }}>
-                                        {unreadCount}
-                                    </span>
-                                )}
-                            </button>
+                </aside>
 
-                            <AnimatePresence>
-                                {showNotifications && (
-                                    <motion.div
-                                        initial={{ opacity: 0, y: 10 }}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        exit={{ opacity: 0, y: 10 }}
-                                        style={{ position: 'absolute', top: '50px', right: 0, width: '320px', background: 'white', borderRadius: '20px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', border: '1px solid #eef2f6', zIndex: 1000, overflow: 'hidden' }}
-                                    >
-                                        <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                            <h4 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 800, color: '#0f172a' }}>Notifications</h4>
-                                            {unreadCount > 0 && <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)', cursor: 'pointer' }}>Mark all read</span>}
-                                        </div>
-                                        <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
-                                            {notifications.length > 0 ? (
-                                                notifications.map((n) => (
-                                                    <div
-                                                        key={n.id}
-                                                        onClick={() => {
-                                                            markAsRead(n.id);
-                                                            navigate(`/request/${n.request_id}`);
-                                                            setShowNotifications(false);
-                                                        }}
-                                                        style={{ padding: '16px 20px', borderBottom: '1px solid #f8fafc', cursor: 'pointer', background: n.is_read ? 'white' : 'rgba(37, 99, 235, 0.03)', transition: 'background 0.2s' }}
-                                                        onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
-                                                        onMouseLeave={(e) => e.currentTarget.style.background = n.is_read ? 'white' : 'rgba(37, 99, 235, 0.03)'}
-                                                    >
-                                                        <div style={{ display: 'flex', gap: '12px' }}>
-                                                            <div style={{ width: 8, height: 8, borderRadius: '50%', background: n.is_read ? 'transparent' : '#2563eb', marginTop: '6px', flexShrink: 0 }} />
-                                                            <div>
-                                                                <p style={{ margin: '0 0 4px 0', fontSize: '0.85rem', fontWeight: 700, color: '#1e293b' }}>{n.title}</p>
-                                                                <p style={{ margin: '0 0 8px 0', fontSize: '0.8rem', color: '#64748b', lineHeight: 1.4 }}>{n.message}</p>
-                                                                <p style={{ margin: 0, fontSize: '0.7rem', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                                    <Clock size={10} /> Just now
-                                                                </p>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                ))
-                                            ) : (
-                                                <div style={{ padding: '40px 20px', textAlign: 'center', color: '#94a3b8' }}>
-                                                    <Bell size={32} style={{ marginBottom: '12px', opacity: 0.2 }} />
-                                                    <p style={{ margin: 0, fontSize: '0.85rem' }}>No new notifications</p>
-                                                </div>
-                                            )}
-                                        </div>
-                                        <div
-                                            onClick={() => navigate('/notifications')}
-                                            style={{ padding: '12px', textAlign: 'center', borderTop: '1px solid #f1f5f9', fontSize: '0.8rem', fontWeight: 700, color: 'var(--primary)', cursor: 'pointer', background: 'white' }}
+                {/* Main Content */}
+                <main style={{ flex: 1, overflowY: 'auto', position: 'relative', display: 'flex', flexDirection: 'column' }}>
+                    {/* Header (Desktop) */}
+                    <header className="mobile-hide" style={{
+                        height: '100px',
+                        minHeight: '100px',
+                        padding: '0 3rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'flex-end',
+                        background: 'transparent',
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+                            <div style={{ position: 'relative' }}>
+                                <button
+                                    onClick={() => setShowNotifications(!showNotifications)}
+                                    style={{
+                                        background: 'white',
+                                        width: '48px',
+                                        height: '48px',
+                                        borderRadius: '16px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        color: '#64748b',
+                                        boxShadow: 'var(--shadow-sm)',
+                                        border: '1px solid var(--border)',
+                                        position: 'relative'
+                                    }}
+                                >
+                                    <Bell size={22} />
+                                    {unreadCount > 0 && (
+                                        <span style={{ position: 'absolute', top: '12px', right: '12px', width: '10px', height: '10px', background: '#ef4444', borderRadius: '50%', border: '2px solid white' }}></span>
+                                    )}
+                                </button>
+
+                                <AnimatePresence>
+                                    {showNotifications && (
+                                        <motion.div
+                                            initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                                            exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                                            style={{
+                                                position: 'absolute',
+                                                top: '60px',
+                                                right: 0,
+                                                width: '320px',
+                                                background: 'white',
+                                                borderRadius: '24px',
+                                                boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)',
+                                                border: '1px solid var(--border)',
+                                                zIndex: 100,
+                                                overflow: 'hidden'
+                                            }}
                                         >
-                                            View All
-                                        </div>
-                                    </motion.div>
-                                )}
-                            </AnimatePresence>
-                        </div>
-                    </div>
-                </header>
+                                            <div style={{ padding: '1.25rem', borderBottom: '1px solid #f1f5f9', fontWeight: 800 }}>Notifications</div>
+                                            <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                                                {notifications.length > 0 ? (
+                                                    notifications.map((n) => (
+                                                        <div
+                                                            key={n.id}
+                                                            onClick={() => markAsRead(n.id)}
+                                                            className="notification-item"
+                                                            style={{
+                                                                padding: '1rem',
+                                                                borderBottom: '1px solid #f8fafc',
+                                                                background: n.is_read ? 'white' : '#eff6ff',
+                                                                cursor: 'pointer',
+                                                                transition: 'background 0.2s',
+                                                                position: 'relative'
+                                                            }}
+                                                        >
+                                                            {!n.is_read && <div style={{ position: 'absolute', left: '0', top: '0', bottom: '0', width: '4px', background: 'var(--primary)' }} />}
+                                                            <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: n.is_read ? 600 : 700, color: '#0f172a' }}>{n.title}</p>
+                                                            <p style={{ margin: '4px 0 0 0', fontSize: '0.75rem', color: '#64748b' }}>{n.content}</p>
+                                                        </div>
+                                                    ))
+                                                ) : (
+                                                    <div style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8', fontSize: '0.9rem' }}>No new notifications</div>
+                                                )}
+                                            </div>
+                                        </motion.div>
+                                    )}
+                                </AnimatePresence>
+                            </div>
 
-                <div style={{ flex: 1, overflowY: 'auto', padding: '2.5rem' }}>
-                    <motion.div
-                        key={location.pathname}
-                        initial={{ opacity: 0, y: 15 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.3, ease: 'easeOut' }}
-                    >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '6px 6px 6px 16px', background: 'white', borderRadius: '20px', border: '1px solid var(--border)' }}>
+                                <div style={{ textAlign: 'right' }}>
+                                    <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 800 }}>{profile?.full_name}</p>
+                                    <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>{profile?.role}</p>
+                                </div>
+                                <div style={{ width: '40px', height: '40px', borderRadius: '14px', background: 'linear-gradient(135deg, #2563eb, #7c3aed)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 800 }}>
+                                    {profile?.full_name?.charAt(0)}
+                                </div>
+                            </div>
+                        </div>
+                    </header>
+
+                    {/* Page Content */}
+                    <div style={{ flex: 1, padding: '0 3rem 3rem 3rem' }} className="mobile-p-sm">
                         <Outlet />
-                    </motion.div>
-                </div>
-            </main>
+                    </div>
+                </main>
+            </div>
+
+            {/* Overlay for mobile menu */}
+            {mobileMenuOpen && (
+                <div
+                    onClick={() => setMobileMenuOpen(false)}
+                    style={{
+                        position: 'fixed',
+                        inset: 0,
+                        background: 'rgba(15, 23, 42, 0.4)',
+                        backdropFilter: 'blur(4px)',
+                        zIndex: 80
+                    }}
+                />
+            )}
+
+            <style>{`
+                aside {
+                    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                }
+                @media (max-width: 768px) {
+                    aside {
+                        position: fixed !important;
+                        top: 64px !important;
+                        left: 0 !important;
+                        bottom: 0 !important;
+                        height: calc(100vh - 64px) !important;
+                        transform: \${mobileMenuOpen ? 'translateX(0)' : 'translateX(-100%)'} !important;
+                        display: flex !important;
+                    }
+                }
+                .notification-item:hover {
+                    background: #f8fafc !important;
+                }
+            `}</style>
         </div>
     );
 }

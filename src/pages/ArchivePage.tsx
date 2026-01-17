@@ -6,13 +6,14 @@ import {
     Archive as ArchiveIcon, Calendar, Building2, User, Trash2, Loader2
 } from 'lucide-react';
 import { AuditRequest, Profile } from '../types';
-import { motion } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 
 export default function ArchivePage() {
     const [requests, setRequests] = useState<AuditRequest[]>([]);
     const [profile, setProfile] = useState<Profile | null>(null);
     const [loading, setLoading] = useState(true);
     const [deletingId, setDeletingId] = useState<string | null>(null);
+    const [deleteConfirmationId, setDeleteConfirmationId] = useState<string | null>(null);
     const navigate = useNavigate();
 
     useEffect(() => {
@@ -33,7 +34,7 @@ export default function ArchivePage() {
 
             setProfile(profileData);
 
-            let query = supabase.from('requests').select('*');
+            let query = supabase.from('requests').select('*, profiles:employee_id(full_name)');
 
             // Only COMPLETED requests
             query = query.in('status', ['approved', 'rejected']);
@@ -56,22 +57,27 @@ export default function ArchivePage() {
         }
     };
 
-    const handleDelete = async (id: string) => {
-        if (!window.confirm('Are you sure you want to permanently delete this archived audit?')) return;
+    const confirmDelete = async () => {
+        if (!deleteConfirmationId) return;
 
-        setDeletingId(id);
+        setDeletingId(deleteConfirmationId);
         try {
             // Cascade delete should handle comments if set up, but we'll be safe
-            await supabase.from('comments').delete().eq('request_id', id);
-            const { error } = await supabase.from('requests').delete().eq('id', id);
+            await supabase.from('comments').delete().eq('request_id', deleteConfirmationId);
+            const { error } = await supabase.from('requests').delete().eq('id', deleteConfirmationId);
             if (error) throw error;
-            setRequests(requests.filter(r => r.id !== id));
+            setRequests(requests.filter(r => r.id !== deleteConfirmationId));
         } catch (err) {
             console.error('Delete error:', err);
             alert('Failed to delete audit.');
         } finally {
             setDeletingId(null);
+            setDeleteConfirmationId(null);
         }
+    };
+
+    const handleDeleteClick = (id: string) => {
+        setDeleteConfirmationId(id);
     };
 
     const getStatusBadge = (status: string) => {
@@ -111,23 +117,23 @@ export default function ArchivePage() {
                     <div style={{ background: '#f1f5f9', color: '#64748b', padding: '10px', borderRadius: '12px' }}>
                         <ArchiveIcon size={24} />
                     </div>
-                    <h1 style={{ fontSize: '2.5rem', fontWeight: 800, color: '#0f172a', margin: 0, letterSpacing: '-0.02em' }}>Audit Archive</h1>
+                    <h1 style={{ fontSize: '2.5rem', fontWeight: 800, color: '#0f172a', margin: 0, letterSpacing: '-0.02em' }} className="mobile-h1">Audit Archive</h1>
                 </div>
-                <p style={{ color: '#64748b', fontSize: '1.1rem', fontWeight: 500 }}>
+                <p style={{ color: '#64748b', fontSize: '1.1rem', fontWeight: 500 }} className="mobile-hide">
                     Historical record of all completed compliance reviews.
                 </p>
             </div>
 
             <div className="glass-card" style={{ padding: 0, overflow: 'hidden', border: '1.5px solid #f1f5f9', borderRadius: '24px' }}>
-                <div style={{ padding: '1.5rem 2rem', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ position: 'relative', width: '320px' }}>
+                <div style={{ padding: '1.5rem 2rem', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} className="mobile-stack mobile-gap-4 mobile-p-md">
+                    <div style={{ position: 'relative', width: '320px' }} className="mobile-full">
                         <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
                         <input type="text" placeholder="Search archives..." style={{ width: '100%', padding: '10px 12px 10px 36px', borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '0.9rem', outline: 'none' }} />
                     </div>
                 </div>
 
                 <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '800px' }}>
                         <thead>
                             <tr style={{ background: '#f8fafc' }}>
                                 <th style={{ padding: '1.25rem 2rem', color: '#64748b', fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Audit Request</th>
@@ -144,7 +150,7 @@ export default function ArchivePage() {
                                         <p style={{ fontWeight: 700, color: '#0f172a', margin: '0 0 4px 0', fontSize: '0.95rem' }}>{request.title}</p>
                                         <div style={{ display: 'flex', gap: '12px', fontSize: '0.75rem', color: '#94a3b8', fontWeight: 500 }}>
                                             <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Building2 size={12} /> {request.department}</span>
-                                            <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><User size={12} /> Employee #{request.employee_id.slice(0, 5)}</span>
+                                            <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><User size={12} /> {(request as any).profiles?.full_name}</span>
                                         </div>
                                     </td>
                                     <td style={{ padding: '1.5rem 2rem' }}>
@@ -169,7 +175,7 @@ export default function ArchivePage() {
                                             </button>
                                             {isAdmin && (
                                                 <button
-                                                    onClick={() => handleDelete(request.id)}
+                                                    onClick={() => handleDeleteClick(request.id)}
                                                     disabled={deletingId === request.id}
                                                     style={{ padding: '8px', borderRadius: '10px', background: '#fef2f2', border: '1px solid #fee2e2', color: '#ef4444', cursor: 'pointer' }}
                                                 >
@@ -185,13 +191,72 @@ export default function ArchivePage() {
                 </div>
 
                 {requests.length === 0 && (
-                    <div style={{ padding: '6rem', textAlign: 'center' }}>
+                    <div style={{ padding: '6rem', textAlign: 'center' }} className="mobile-p-md">
                         <ArchiveIcon size={48} style={{ color: '#e2e8f0', marginBottom: '1.5rem' }} />
                         <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#0f172a', marginBottom: '0.5rem' }}>Archive is Empty</h3>
                         <p style={{ color: '#94a3b8', margin: 0, fontWeight: 500 }}>Once requests are approved or rejected, they will appear here.</p>
                     </div>
                 )}
             </div>
+
+            {/* DELETE CONFIRMATION MODAL */}
+            <AnimatePresence>
+                {deleteConfirmationId && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        style={{
+                            position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)',
+                            zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem'
+                        }}
+                    >
+                        <motion.div
+                            initial={{ scale: 0.95, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ scale: 0.95, opacity: 0 }}
+                            style={{
+                                background: 'white', borderRadius: '24px', padding: '2rem', width: '100%', maxWidth: '400px',
+                                boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)'
+                            }}
+                        >
+                            <div style={{
+                                width: '64px', height: '64px', borderRadius: '20px', background: '#fef2f2', color: '#dc2626',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem'
+                            }}>
+                                <Trash2 size={32} />
+                            </div>
+                            <h3 style={{ textAlign: 'center', fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', margin: '0 0 0.5rem 0' }}>
+                                Delete Archive?
+                            </h3>
+                            <p style={{ textAlign: 'center', color: '#64748b', margin: '0 0 2rem 0', lineHeight: 1.5 }}>
+                                This action cannot be undone. This record will be permanently removed from the database.
+                            </p>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                                <button
+                                    onClick={() => setDeleteConfirmationId(null)}
+                                    style={{
+                                        padding: '12px', borderRadius: '14px', border: '1px solid #e2e8f0', background: 'white',
+                                        color: '#64748b', fontWeight: 700, cursor: 'pointer', fontSize: '1rem'
+                                    }}
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={confirmDelete}
+                                    style={{
+                                        padding: '12px', borderRadius: '14px', border: 'none', background: '#ef4444',
+                                        color: 'white', fontWeight: 700, cursor: 'pointer', fontSize: '1rem',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
+                                    }}
+                                >
+                                    {deletingId ? <Loader2 className="animate-spin" size={20} /> : 'Delete'}
+                                </button>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
 
             <style>{`
               .loader-ring {
