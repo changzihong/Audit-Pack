@@ -12,6 +12,22 @@ export default function Shell({ session }: { session: any }) {
     const [notifications, setNotifications] = useState<any[]>([]);
     const [showNotifications, setShowNotifications] = useState(false);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+    const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+
+    useEffect(() => {
+        const handleResize = () => setIsMobile(window.innerWidth <= 768);
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
+
+    useEffect(() => {
+        if (profile) {
+            // Strict Department Check: If not Admin and no Department, FORCE to profile
+            if (profile.role !== 'admin' && !profile.department && location.pathname !== '/profile') {
+                navigate('/profile', { replace: true });
+            }
+        }
+    }, [profile, location.pathname, navigate]);
 
     useEffect(() => {
         if (session?.user?.id) {
@@ -23,9 +39,9 @@ export default function Shell({ session }: { session: any }) {
                 .channel('notifications-live')
                 .on(
                     'postgres_changes',
-                    { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${session.user.id}` },
-                    (payload) => {
-                        setNotifications(prev => [payload.new, ...prev]);
+                    { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${session.user.id}` },
+                    () => {
+                        fetchNotifications();
                     }
                 )
                 .subscribe();
@@ -34,14 +50,33 @@ export default function Shell({ session }: { session: any }) {
         }
     }, [session]);
 
+    useEffect(() => {
+        // Manual trigger for cross-component updates
+        const handler = () => fetchNotifications();
+        window.addEventListener('notifications:updated', handler);
+        return () => window.removeEventListener('notifications:updated', handler);
+    }, [session]);
+
     // Close mobile menu on navigation
     useEffect(() => {
         setMobileMenuOpen(false);
     }, [location.pathname]);
 
+    const [companyName, setCompanyName] = useState<string>('');
+
     const fetchProfile = async () => {
-        const { data } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
+        const { data } = await supabase
+            .from('profiles')
+            .select('*, organizations(name)')
+            .eq('id', session.user.id)
+            .single();
+
         setProfile(data);
+        // @ts-ignore
+        if (data?.organizations?.name) {
+            // @ts-ignore
+            setCompanyName(data.organizations.name);
+        }
     };
 
     const fetchNotifications = async () => {
@@ -59,6 +94,79 @@ export default function Shell({ session }: { session: any }) {
         navigate('/');
     };
 
+    if (profile?.status === 'suspended') {
+        return (
+            <div style={{
+                height: '100vh',
+                width: '100vw',
+                background: '#0f172a',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexDirection: 'column',
+                position: 'relative',
+                overflow: 'hidden'
+            }}>
+                <div style={{
+                    position: 'absolute', inset: 0, opacity: 0.4,
+                    backgroundImage: 'radial-gradient(circle at 50% 50%, #1e293b 0%, #0f172a 100%)'
+                }} />
+
+                <div className="glass-card" style={{
+                    position: 'relative',
+                    padding: '3rem',
+                    maxWidth: '480px',
+                    width: '90%',
+                    textAlign: 'center',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    background: 'rgba(255, 255, 255, 0.03)',
+                    backdropFilter: 'blur(10px)'
+                }}>
+                    <div style={{
+                        width: '80px', height: '80px', margin: '0 auto 1.5rem',
+                        background: 'rgba(239, 68, 68, 0.1)',
+                        borderRadius: '24px',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        boxShadow: '0 0 40px rgba(239, 68, 68, 0.2)'
+                    }}>
+                        <ShieldCheck size={40} color="#ef4444" />
+                    </div>
+
+                    <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: 'white', marginBottom: '1rem', letterSpacing: '-0.02em' }}>
+                        Account Suspended
+                    </h1>
+
+                    <p style={{ color: '#94a3b8', fontSize: '1.05rem', lineHeight: 1.6, marginBottom: '2.5rem' }}>
+                        Your access to <strong>Audit Pack</strong> has been temporarily suspended by your organization's administrator.
+                    </p>
+
+                    <div style={{ background: 'rgba(255,255,255,0.05)', borderRadius: '12px', padding: '1rem', marginBottom: '2rem' }}>
+                        <p style={{ margin: 0, fontSize: '0.9rem', color: '#cbd5e1' }}>
+                            Please contact your manager or IT support to restore your access.
+                        </p>
+                    </div>
+
+                    <button
+                        onClick={handleLogout}
+                        className="btn-primary"
+                        style={{
+                            width: '100%',
+                            padding: '16px',
+                            fontSize: '1rem',
+                            background: 'white',
+                            color: '#0f172a',
+                            display: 'flex',
+                            justifyContent: 'center',
+                            gap: '10px'
+                        }}
+                    >
+                        <LogOut size={20} /> Back to Login
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
     const markAsRead = async (id: string) => {
         await supabase.from('notifications').update({ is_read: true }).eq('id', id);
         setNotifications(notifications.map(n => n.id === id ? { ...n, is_read: true } : n));
@@ -69,14 +177,13 @@ export default function Shell({ session }: { session: any }) {
     const navItems = [
         { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
         { path: '/requests', label: 'Request Center', icon: FileText },
-        { path: '/create', label: 'New Request', icon: PlusCircle },
-        { path: '/archive', label: 'Archive', icon: Archive },
-        { path: '/profile', label: 'Account Settings', icon: User },
     ];
 
-    if (profile?.role === 'admin') {
-        navItems.push({ path: '/admin/users', label: 'Manage Team', icon: Users });
-    }
+
+    navItems.push({ path: '/archive', label: 'Archive', icon: Archive });
+    navItems.push({ path: '/profile', label: 'Account Settings', icon: User });
+
+
 
     const unreadCount = notifications.filter(n => !n.is_read).length;
 
@@ -129,7 +236,12 @@ export default function Shell({ session }: { session: any }) {
                             <div style={{ background: 'var(--primary)', color: 'white', padding: '10px', borderRadius: '12px', boxShadow: '0 4px 12px rgba(37, 99, 235, 0.3)' }}>
                                 <ShieldCheck size={28} />
                             </div>
-                            <h1 style={{ fontSize: '1.5rem', fontWeight: 800, margin: 0, letterSpacing: '-0.02em', fontFamily: 'Outfit' }}>Audit Pack</h1>
+                            <div>
+                                <h1 style={{ fontSize: '1.5rem', fontWeight: 800, margin: 0, letterSpacing: '-0.02em', fontFamily: 'Outfit' }}>Audit Pack</h1>
+                                {companyName && (
+                                    <p style={{ margin: 0, fontSize: '0.8rem', color: 'rgba(255,255,255,0.5)', fontWeight: 500 }}>{companyName}</p>
+                                )}
+                            </div>
                         </div>
 
                         <nav style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -167,9 +279,12 @@ export default function Shell({ session }: { session: any }) {
                             <div style={{ background: 'rgba(255,255,255,0.1)', width: '40px', height: '40px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                 <User size={20} color="var(--primary-light)" />
                             </div>
-                            <div style={{ overflow: 'hidden' }}>
-                                <p style={{ margin: 0, fontSize: '0.9rem', fontWeight: 700, whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{profile?.full_name}</p>
+                            <div style={{ overflow: 'hidden', flex: 1 }}>
+                                <p style={{ margin: 0, fontSize: '0.9rem', fontWeight: 700, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>{profile?.full_name}</p>
                                 <p style={{ margin: 0, fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', fontWeight: 800 }}>{profile?.role}</p>
+                                {profile?.department && (
+                                    <p style={{ margin: 0, fontSize: '0.7rem', color: 'rgba(255,255,255,0.5)', fontWeight: 600, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>{profile.department}</p>
+                                )}
                             </div>
                         </div>
 
@@ -274,6 +389,22 @@ export default function Shell({ session }: { session: any }) {
                                                 ) : (
                                                     <div style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8', fontSize: '0.9rem' }}>No new notifications</div>
                                                 )}
+                                            </div>
+                                            <div
+                                                onClick={() => { setShowNotifications(false); navigate('/notifications'); }}
+                                                style={{
+                                                    padding: '1rem',
+                                                    textAlign: 'center',
+                                                    borderTop: '1px solid #f1f5f9',
+                                                    cursor: 'pointer',
+                                                    fontSize: '0.85rem',
+                                                    fontWeight: 600,
+                                                    color: '#2563eb',
+                                                    transition: 'background 0.2s'
+                                                }}
+                                                className="hover:bg-slate-50"
+                                            >
+                                                View All Notifications
                                             </div>
                                         </motion.div>
                                     )}

@@ -6,6 +6,8 @@ export interface Profile {
   role: UserRole;
   department: string;
   avatar_url?: string;
+  organization_id?: string;
+  status?: 'active' | 'suspended';
   created_at: string;
 }
 
@@ -15,13 +17,14 @@ export interface AuditRequest {
   id: string;
   title: string;
   description: string;
-  category: 'expense' | 'travel' | 'purchase' | 'other';
+  category: string;
   amount: number;
   total_amount: number;
   status: RequestStatus;
   employee_id: string;
   department: string;
   attachments: string[];
+  file_urls?: string[];
   ai_summary?: string;
   ai_completeness_score?: number;
   ai_feedback?: string[];

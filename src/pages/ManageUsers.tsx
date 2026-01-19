@@ -2,52 +2,99 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import {
     Users, Search, Shield, Building2, User,
-    Settings2, Check, X, Loader2, AlertCircle
+    Settings2, Check, X, Loader2, AlertCircle, Ban, Power
 } from 'lucide-react';
 import { Profile } from '../types';
-import { motion, AnimatePresence } from 'framer-motion';
 
 export default function ManageUsers() {
     const [users, setUsers] = useState<Profile[]>([]);
     const [loading, setLoading] = useState(true);
     const [editingId, setEditingId] = useState<string | null>(null);
+    const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+    const [departments, setDepartments] = useState<string[]>([]);
+
+    // Edit form state
     const [editForm, setEditForm] = useState<{ role: string, department: string }>({ role: '', department: '' });
     const [saving, setSaving] = useState(false);
+    const [togglingStatus, setTogglingStatus] = useState<string | null>(null);
 
-    const departments = [
-        'Engineering', 'Finance & Accounting', 'Human Resources',
-        'Operations', 'Sales & Marketing', 'IT Support', 'General'
-    ];
-
-    const roles = ['employee', 'manager', 'admin'];
+    const roles = ['employee', 'manager'];
 
     useEffect(() => {
-        fetchUsers();
+        fetchCurrentUser();
+        fetchData();
     }, []);
 
-    const fetchUsers = async () => {
+    const fetchCurrentUser = async () => {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) setCurrentUserId(user.id);
+    };
+
+    const fetchData = async () => {
         setLoading(true);
-        const { data, error } = await supabase
+        await Promise.all([fetchUsers(), fetchDepartments()]);
+        setLoading(false);
+    };
+
+    const fetchDepartments = async () => {
+        const { data } = await supabase.from('departments').select('name').order('name');
+        if (data && data.length > 0) {
+            setDepartments(data.map(d => d.name).filter(name => name !== 'General'));
+        } else {
+            // Fallback if no db departments
+            setDepartments(['Engineering', 'Finance & Accounting', 'Human Resources', 'Operations', 'Sales & Marketing', 'IT Support']);
+        }
+    };
+
+    const fetchUsers = async () => {
+        const { data } = await supabase
             .from('profiles')
             .select('*')
             .order('full_name', { ascending: true });
 
         if (data) setUsers(data);
-        setLoading(false);
     };
 
     const startEdit = (user: Profile) => {
+        // Prevent editing self
+        if (user.id === currentUserId) return;
+
         setEditingId(user.id);
         setEditForm({ role: user.role, department: user.department || 'General' });
     };
 
+    const toggleStatus = async (user: Profile) => {
+        // Prevent suspending self
+        if (user.id === currentUserId) return;
+
+        setTogglingStatus(user.id);
+        const newStatus = user.status === 'suspended' ? 'active' : 'suspended';
+
+        try {
+            const { error } = await supabase
+                .from('profiles')
+                .update({ status: newStatus })
+                .eq('id', user.id);
+
+            if (error) throw error;
+
+            // Optimistic update
+            setUsers(users.map(u => u.id === user.id ? { ...u, status: newStatus as any } : u));
+        } catch (err) {
+            console.error('Error updating status:', err);
+            alert('Failed to update user status.');
+        } finally {
+            setTogglingStatus(null);
+        }
+    };
+
     const saveChanges = async (userId: string) => {
-        setSaving(userId === editingId);
+        setSaving(true);
         try {
             const { error } = await supabase
                 .from('profiles')
                 .update({
-                    role: editForm.role,
+                    role: editForm.role as any,
                     department: editForm.department
                 })
                 .eq('id', userId);
@@ -79,7 +126,7 @@ export default function ManageUsers() {
                     <h1 style={{ fontSize: '2.5rem', fontWeight: 800, color: '#0f172a', margin: 0 }} className="mobile-h1">Team Management</h1>
                 </div>
                 <p style={{ color: '#64748b', fontSize: '1.1rem', fontWeight: 500 }} className="mobile-hide">
-                    Manage roles, departmental assignments, and access control.
+                    Manage roles, departmental assignments, and account access.
                 </p>
             </div>
 
@@ -92,10 +139,11 @@ export default function ManageUsers() {
                 </div>
 
                 <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '800px' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '900px' }}>
                         <thead>
                             <tr style={{ background: '#f8fafc' }}>
                                 <th style={{ padding: '1.25rem 2rem', color: '#64748b', fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Member</th>
+                                <th style={{ padding: '1.25rem 2rem', color: '#64748b', fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Status</th>
                                 <th style={{ padding: '1.25rem 2rem', color: '#64748b', fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Role</th>
                                 <th style={{ padding: '1.25rem 2rem', color: '#64748b', fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Department</th>
                                 <th style={{ padding: '1.25rem 2rem', color: '#64748b', fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Actions</th>
@@ -103,17 +151,31 @@ export default function ManageUsers() {
                         </thead>
                         <tbody>
                             {users.map((user) => (
-                                <tr key={user.id} style={{ borderBottom: '1px solid #f1f5f9', transition: 'all 0.2s' }} className="hover:bg-slate-50">
+                                <tr key={user.id} style={{ borderBottom: '1px solid #f1f5f9', transition: 'all 0.2s', background: user.status === 'suspended' ? '#fff1f2' : 'white' }} className="hover:bg-slate-50">
                                     <td style={{ padding: '1.5rem 2rem' }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                                            <div style={{ width: 44, height: 44, borderRadius: '14px', background: 'linear-gradient(135deg, #f1f5f9, #e2e8f0)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', fontWeight: 700 }}>
+                                            <div style={{ width: 44, height: 44, borderRadius: '14px', background: 'linear-gradient(135deg, #f1f5f9, #e2e8f0)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', fontWeight: 700, position: 'relative' }}>
                                                 {user.full_name?.charAt(0) || 'U'}
+                                                {user.status === 'suspended' && (
+                                                    <div style={{ position: 'absolute', bottom: -4, right: -4, background: '#ef4444', border: '2px solid white', borderRadius: '50%', width: 14, height: 14 }}></div>
+                                                )}
                                             </div>
                                             <div>
-                                                <p style={{ fontWeight: 700, color: '#0f172a', margin: '0 0 2px 0', fontSize: '1rem' }}>{user.full_name}</p>
-                                                <p style={{ fontSize: '0.75rem', color: '#94a3b8', margin: 0, fontWeight: 500 }}>{user.id.slice(0, 18)}...</p>
+                                                <p style={{ fontWeight: 700, color: user.status === 'suspended' ? '#991b1b' : '#0f172a', margin: '0 0 2px 0', fontSize: '1rem' }}>{user.full_name}</p>
+                                                <p style={{ fontSize: '0.75rem', color: '#94a3b8', margin: 0, fontWeight: 500 }}>{user.id.slice(0, 18)}... {user.id === currentUserId && '(You)'}</p>
                                             </div>
                                         </div>
+                                    </td>
+                                    <td style={{ padding: '1.5rem 2rem' }}>
+                                        <span style={{
+                                            padding: '4px 10px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase',
+                                            background: user.status === 'suspended' ? '#fecaca' : '#dcfce7',
+                                            color: user.status === 'suspended' ? '#991b1b' : '#166534',
+                                            display: 'inline-flex', alignItems: 'center', gap: '6px'
+                                        }}>
+                                            {user.status === 'suspended' ? <Ban size={12} /> : <Check size={12} />}
+                                            {user.status === 'suspended' ? 'Suspended' : 'Active'}
+                                        </span>
                                     </td>
                                     <td style={{ padding: '1.5rem 2rem' }}>
                                         {editingId === user.id ? (
@@ -151,23 +213,44 @@ export default function ManageUsers() {
                                         )}
                                     </td>
                                     <td style={{ padding: '1.5rem 2rem' }}>
-                                        {editingId === user.id ? (
-                                            <div style={{ display: 'flex', gap: '8px' }}>
-                                                <button onClick={() => saveChanges(user.id)} style={{ padding: '8px', background: '#2563eb', color: 'white', borderRadius: '8px', border: 'none' }} disabled={saving}>
-                                                    {saving ? <Loader2 className="animate-spin" size={16} /> : <Check size={16} />}
-                                                </button>
-                                                <button onClick={() => setEditingId(null)} style={{ padding: '8px', background: '#f1f5f9', color: '#64748b', borderRadius: '8px', border: 'none' }}>
-                                                    <X size={16} />
-                                                </button>
-                                            </div>
-                                        ) : (
-                                            <button
-                                                onClick={() => startEdit(user)}
-                                                style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', borderRadius: '10px', background: 'white', border: '1px solid #e2e8f0', color: '#475569', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer' }}
-                                            >
-                                                <Settings2 size={14} /> Edit Access
-                                            </button>
-                                        )}
+                                        <div style={{ display: 'flex', gap: '8px' }}>
+                                            {editingId === user.id ? (
+                                                <>
+                                                    <button onClick={() => saveChanges(user.id)} style={{ padding: '8px', background: '#2563eb', color: 'white', borderRadius: '8px', border: 'none' }} disabled={saving}>
+                                                        {saving ? <Loader2 className="animate-spin" size={16} /> : <Check size={16} />}
+                                                    </button>
+                                                    <button onClick={() => setEditingId(null)} style={{ padding: '8px', background: '#f1f5f9', color: '#64748b', borderRadius: '8px', border: 'none' }}>
+                                                        <X size={16} />
+                                                    </button>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    {user.id !== currentUserId && (
+                                                        <>
+                                                            <button
+                                                                onClick={() => startEdit(user)}
+                                                                style={{ padding: '8px', borderRadius: '8px', background: 'white', border: '1px solid #e2e8f0', color: '#475569', cursor: 'pointer' }}
+                                                                title="Edit Access"
+                                                            >
+                                                                <Settings2 size={16} />
+                                                            </button>
+                                                            <button
+                                                                onClick={() => toggleStatus(user)}
+                                                                disabled={togglingStatus === user.id}
+                                                                style={{
+                                                                    padding: '8px', borderRadius: '8px', border: 'none', cursor: 'pointer',
+                                                                    background: user.status === 'suspended' ? '#dcfce7' : '#fee2e2',
+                                                                    color: user.status === 'suspended' ? '#166534' : '#991b1b'
+                                                                }}
+                                                                title={user.status === 'suspended' ? "Activate Account" : "Suspend Account"}
+                                                            >
+                                                                {togglingStatus === user.id ? <Loader2 className="animate-spin" size={16} /> : <Power size={16} />}
+                                                            </button>
+                                                        </>
+                                                    )}
+                                                </>
+                                            )}
+                                        </div>
                                     </td>
                                 </tr>
                             ))}

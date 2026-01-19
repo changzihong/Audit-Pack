@@ -67,48 +67,23 @@ export default function RequestsPage() {
 
     return (
         <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
-            <div style={{ marginBottom: '3rem' }}>
-                <h1 style={{ fontSize: '2.5rem', fontWeight: 800, color: '#0f172a', marginBottom: '0.5rem' }} className="mobile-h1">Request Center</h1>
-                <p style={{ color: '#64748b', fontSize: '1.1rem', fontWeight: 500 }} className="mobile-hide">Submit new documentation or track your active audit queue.</p>
+            <div style={{ marginBottom: '3rem', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }} className="mobile-stack mobile-gap-2">
+                <div>
+                    <h1 style={{ fontSize: '2.5rem', fontWeight: 800, color: '#0f172a', marginBottom: '0.5rem' }} className="mobile-h1">Request Center</h1>
+                    <p style={{ color: '#64748b', fontSize: '1.1rem', fontWeight: 500 }} className="mobile-hide">Submit new documentation or track your active audit queue.</p>
+                </div>
+                {profile?.role === 'employee' && (
+                    <button
+                        onClick={() => navigate('/create')}
+                        className="btn-primary"
+                        style={{ padding: '14px 24px', borderRadius: '14px', fontSize: '1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}
+                    >
+                        <Plus size={20} /> New Request
+                    </button>
+                )}
             </div>
 
-            {/* Form Selection Grid */}
-            <div style={{ marginBottom: '4rem' }}>
-                <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#0f172a', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <PlusCircle size={20} color="var(--primary)" /> Initiate New Request
-                </h3>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.5rem' }}>
-                    {formTypes.map((type) => (
-                        <motion.div
-                            key={type.id}
-                            whileHover={{ y: -5, boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}
-                            onClick={() => navigate(`/create?category=${type.id}`)}
-                            style={{
-                                background: 'white',
-                                padding: '2rem',
-                                borderRadius: '24px',
-                                border: '1.5px solid #f1f5f9',
-                                cursor: 'pointer',
-                                transition: 'all 0.2s',
-                                display: 'flex',
-                                flexDirection: 'column',
-                                gap: '1rem'
-                            }}
-                        >
-                            <div style={{ background: `${type.color}15`, color: type.color, width: '48px', height: '48px', borderRadius: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                <type.icon size={24} />
-                            </div>
-                            <div>
-                                <h4 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#0f172a', margin: '0 0 4px 0' }}>{type.label}</h4>
-                                <p style={{ fontSize: '0.85rem', color: '#64748b', margin: 0, lineHeight: 1.4 }}>{type.desc}</p>
-                            </div>
-                            <div style={{ marginTop: '0.5rem', color: type.color, fontSize: '0.85rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                Open Form <ArrowUpRight size={14} />
-                            </div>
-                        </motion.div>
-                    ))}
-                </div>
-            </div>
+
 
             {/* Audit Queue Table */}
             <div className="glass-card" style={{ padding: '0', border: '1.5px solid #f1f5f9', borderRadius: '24px', overflow: 'hidden' }}>
@@ -222,6 +197,6 @@ export default function RequestsPage() {
                 .loader-ring { width: 48px; height: 48px; border: 4px solid #f3f3f3; border-top: 4px solid #2563eb; border-radius: 50%; animation: spin 1s linear infinite; }
                 @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
             `}</style>
-        </div>
+        </div >
     );
 }

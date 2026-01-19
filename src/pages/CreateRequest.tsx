@@ -4,15 +4,16 @@ import { supabase } from '../lib/supabase';
 import { analyzeRequest } from '../lib/openai';
 import {
     Save, ArrowLeft, Upload, Sparkles, AlertCircle,
-    CheckCircle, ShieldCheck, Trash2, Loader2, Info, Building, Wallet, Calendar, FileText, X
+    CheckCircle, ShieldCheck, Trash2, Loader2, Info, Building, Wallet, Calendar, FileText, X,
+    Plane, Briefcase, PlusCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { notifyAdminsAndManagers } from '../lib/notifications';
 
 export default function CreateRequest() {
-    const [searchParams] = useSearchParams();
+    const [searchParams, setSearchParams] = useSearchParams();
     const editId = searchParams.get('id');
-    const initialCategory = searchParams.get('category') || 'expense';
+    const initialCategory = searchParams.get('category') || '';
 
     const [loading, setLoading] = useState(false);
     const [analyzing, setAnalyzing] = useState(false);
@@ -34,6 +35,25 @@ export default function CreateRequest() {
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const [aiInsights, setAiInsights] = useState<{ score: number; summary: string } | null>(null);
+    const [departments, setDepartments] = useState<{ id: string, name: string }[]>([]);
+
+    useEffect(() => {
+        const fetchDepartments = async () => {
+            const { data } = await supabase.from('departments')
+                .select('id, name')
+                .neq('name', 'General')
+                .order('name');
+            if (data) setDepartments(data);
+        };
+        fetchDepartments();
+    }, []);
+
+    // Update category if URL param changes
+    useEffect(() => {
+        if (initialCategory) {
+            setFormData(prev => ({ ...prev, category: initialCategory }));
+        }
+    }, [initialCategory]);
 
     useEffect(() => {
         if (editId) fetchEditData();
@@ -89,7 +109,7 @@ export default function CreateRequest() {
                 amount: formData.total_amount,
                 description: formData.description,
                 department: formData.department
-            }, files.map(f => f.name));
+            }, files);
 
             // Format the response for the UI
             // analyzeRequest returns { completeness_score, summary: string[], feedback: string[] }
@@ -114,58 +134,101 @@ export default function CreateRequest() {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+
+        // Check if AI analysis has been run
+        if (!aiInsights) {
+            setValidationMessage('Please run AI Analysis before submitting your request.');
+            setShowValidationModal(true);
+            return;
+        }
+
         setLoading(true);
 
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
 
-        const payload = {
-            title: formData.title,
-            category: formData.category,
-            total_amount: parseFloat(formData.total_amount),
-            amount: parseFloat(formData.total_amount), // Required by DB schema
-            sst_amount: 0,
-            description: formData.description,
-            department: formData.department,
-            audit_date: formData.audit_date,
-            employee_id: user.id,
-            status: 'pending',
-            ai_completeness_score: aiInsights?.score || 0,
-            ai_summary: aiInsights?.summary || ''
-        };
+        try {
+            // Upload files to Supabase Storage
+            const fileUrls: string[] = [];
 
-        let error;
-        let createdRequestId = editId;
+            for (const file of files) {
+                // Preserve original filename with timestamp for uniqueness
+                const timestamp = Date.now();
+                const sanitizedName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+                const fileName = `${user.id}/${timestamp}_${sanitizedName}`;
 
-        if (editId) {
-            const { error: err } = await supabase.from('requests').update(payload).eq('id', editId);
-            error = err;
-        } else {
-            const { data: newReq, error: err } = await supabase.from('requests').insert([payload]).select().single();
-            error = err;
-            createdRequestId = newReq?.id;
-        }
+                const { data: uploadData, error: uploadError } = await supabase.storage
+                    .from('request-files')
+                    .upload(fileName, file, {
+                        cacheControl: '3600',
+                        upsert: false
+                    });
 
-        if (error) {
-            console.error('Error submitting request:', error);
-            setValidationMessage(`Failed to create request: ${error.message}`);
+                if (uploadError) {
+                    console.error('File upload error:', uploadError);
+                    throw new Error(`Failed to upload ${file.name}`);
+                }
+
+                if (uploadData) {
+                    fileUrls.push(uploadData.path);
+                }
+            }
+
+            const payload = {
+                title: formData.title,
+                category: formData.category,
+                total_amount: parseFloat(formData.total_amount),
+                amount: parseFloat(formData.total_amount), // Required by DB schema
+                sst_amount: 0,
+                description: formData.description,
+                department: formData.department,
+                audit_date: formData.audit_date,
+                employee_id: user.id,
+                status: 'pending',
+                ai_completeness_score: aiInsights?.score || 0,
+                ai_summary: aiInsights?.summary || '',
+                file_urls: fileUrls.length > 0 ? fileUrls : null
+            };
+
+            let error;
+            let createdRequestId = editId;
+
+            if (editId) {
+                const { error: err } = await supabase.from('requests').update(payload).eq('id', editId);
+                error = err;
+            } else {
+                const { data: newReq, error: err } = await supabase.from('requests').insert([payload]).select().single();
+                error = err;
+                createdRequestId = newReq?.id;
+            }
+
+            if (error) {
+                console.error('Error submitting request:', error);
+                setValidationMessage(`Failed to create request: ${error.message}`);
+                setShowValidationModal(true);
+                setLoading(false);
+                return;
+            }
+
+            // Notify Admins & Managers
+            if (createdRequestId) {
+                await notifyAdminsAndManagers(
+                    formData.department,
+                    editId ? 'resubmitted' : 'created',
+                    formData.title,
+                    createdRequestId,
+                    user.user_metadata?.full_name || 'An Employee'
+                );
+            }
+
+
+            navigate('/requests');
+        } catch (err: any) {
+            console.error('Submission error:', err);
+            setValidationMessage(err.message || 'Failed to submit request');
             setShowValidationModal(true);
             setLoading(false);
-            return;
         }
-
-        // Notify Admins & Managers
-        if (createdRequestId) {
-            await notifyAdminsAndManagers(
-                formData.department,
-                editId ? 'resubmitted' : 'created',
-                formData.title,
-                createdRequestId,
-                user.user_metadata?.full_name || 'An Employee'
-            );
-        }
-
-        navigate('/requests');
     };
 
     return (
@@ -178,8 +241,57 @@ export default function CreateRequest() {
                     <h1 style={{ fontSize: '2.5rem', fontWeight: 900, color: '#0f172a', margin: 0, letterSpacing: '-0.02em' }} className="mobile-h1">
                         {editId ? 'Refine Request' : 'New Audit Documentation'}
                     </h1>
+                    <p style={{ color: '#64748b', fontSize: '1rem', fontWeight: 500, marginTop: '0.75rem', lineHeight: 1.6 }}>
+                        Submit expense claims, travel requests, purchase orders, or other audit documentation for review and approval.
+                        All submissions are verified by AI and reviewed by your department manager or admin.
+                    </p>
                 </div>
             </div>
+
+            {/* Category Selection Guide - Only show when not editing */}
+            {!editId && (
+                <div style={{ marginBottom: '3rem' }}>
+                    <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#0f172a', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <PlusCircle size={20} color="var(--primary)" /> Quick Category Selection
+                    </h3>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+                        {[
+                            { id: 'Expense Claim', icon: Wallet, color: '#2563eb', desc: 'Company expenses & receipts' },
+                            { id: 'Travel Request', icon: Plane, color: '#8b5cf6', desc: 'Flights, hotels & per-diem' },
+                            { id: 'Purchase Order', icon: Briefcase, color: '#10b981', desc: 'Hardware, software or services' },
+                            { id: 'Other Audit', icon: PlusCircle, color: '#64748b', desc: 'General compliance requests' },
+                        ].map((type) => (
+                            <motion.div
+                                key={type.id}
+                                whileHover={{ y: -3, boxShadow: '0 12px 20px -5px rgba(0,0,0,0.1)' }}
+                                onClick={() => setFormData({ ...formData, category: type.id })}
+                                style={{
+                                    background: formData.category === type.id ? `${type.color}10` : 'white',
+                                    padding: '1rem',
+                                    borderRadius: '16px',
+                                    border: formData.category === type.id ? `2px solid ${type.color}` : '1.5px solid #f1f5f9',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    alignItems: 'center',
+                                    textAlign: 'center',
+                                    gap: '0.75rem',
+                                    minHeight: '120px'
+                                }}
+                            >
+                                <div style={{ background: `${type.color}15`, color: type.color, width: '48px', height: '48px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                    <type.icon size={24} />
+                                </div>
+                                <div>
+                                    <h4 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#0f172a', margin: '0 0 4px 0' }}>{type.id}</h4>
+                                    <p style={{ fontSize: '0.7rem', color: '#64748b', margin: 0, lineHeight: 1.3 }}>{type.desc}</p>
+                                </div>
+                            </motion.div>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             <form onSubmit={handleSubmit} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 400px', gap: '2rem' }} className="mobile-grid-1 tablet-stack">
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
@@ -202,16 +314,13 @@ export default function CreateRequest() {
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '1.5rem' }} className="mobile-grid-1">
                             <div className="input-group" style={{ marginBottom: 0 }}>
                                 <label className="input-label">Audit Category</label>
-                                <select
+                                <input
+                                    required
                                     className="input-field"
                                     value={formData.category}
                                     onChange={e => setFormData({ ...formData, category: e.target.value })}
-                                >
-                                    <option value="expense">Expense Reimbursement</option>
-                                    <option value="travel">Corporate Travel</option>
-                                    <option value="purchase">Service Procurement</option>
-                                    <option value="other">General Compliance</option>
-                                </select>
+                                    placeholder="e.g. Travel, Office Supplies"
+                                />
                             </div>
                             <div className="input-group" style={{ marginBottom: 0 }}>
                                 <label className="input-label">Department</label>
@@ -222,12 +331,9 @@ export default function CreateRequest() {
                                     onChange={e => setFormData({ ...formData, department: e.target.value })}
                                 >
                                     <option value="">Select Department</option>
-                                    <option value="Engineering">Engineering</option>
-                                    <option value="Finance">Finance</option>
-                                    <option value="Human Resources">Human Resources</option>
-                                    <option value="Operations">Operations</option>
-                                    <option value="Sales & Marketing">Sales & Marketing</option>
-                                    <option value="IT Support">IT Support</option>
+                                    {departments.map(dept => (
+                                        <option key={dept.id} value={dept.name}>{dept.name}</option>
+                                    ))}
                                 </select>
                             </div>
                         </div>
@@ -351,12 +457,6 @@ export default function CreateRequest() {
                         )}
                     </div>
 
-                    <div style={{ background: '#fef3c7', padding: '1.5rem', borderRadius: '24px', border: '1px solid #fde68a', display: 'flex', gap: '12px' }}>
-                        <Info size={20} color="#d97706" style={{ flexShrink: 0, marginTop: '2px' }} />
-                        <p style={{ margin: 0, fontSize: '0.85rem', color: '#92400e', fontWeight: 500, lineHeight: 1.5 }}>
-                            All submissions are final and strictly monitored by internal compliance protocols.
-                        </p>
-                    </div>
 
                     <button
                         type="submit"

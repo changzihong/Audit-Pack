@@ -149,13 +149,24 @@ export default function Dashboard() {
                         <h1 style={{ fontSize: '3.5rem', fontWeight: 900, marginBottom: '1rem', letterSpacing: '-0.04em', lineHeight: 1 }} className="mobile-h1">Dashboard</h1>
                         <p style={{ fontSize: '1.25rem', opacity: 0.7, maxWidth: '500px', lineHeight: 1.6 }} className="mobile-hide">Welcome back, {profile?.full_name?.split(' ')[0]}. You have <span style={{ color: '#60a5fa', fontWeight: 800 }}>{statsData.pendingCount}</span> requests awaiting review today.</p>
                     </div>
-                    <button
-                        onClick={() => navigate('/requests')}
-                        className="btn-primary mobile-full"
-                        style={{ padding: '20px 48px', borderRadius: '20px', fontSize: '1.2rem', fontWeight: 900, background: 'white', color: '#0f172a', border: 'none', gap: '12px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)', marginTop: '2rem' }}
-                    >
-                        <Plus size={24} /> New Audit Request
-                    </button>
+                    {profile?.role === 'employee' && (
+                        <button
+                            onClick={() => navigate('/create')}
+                            className="btn-primary mobile-full"
+                            style={{ padding: '12px 24px', borderRadius: '16px', fontSize: '0.95rem', fontWeight: 700, background: 'white', color: '#0f172a', border: 'none', gap: '8px', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.3)', marginTop: '2rem' }}
+                        >
+                            <Plus size={18} /> New Audit Request
+                        </button>
+                    )}
+                    {profile?.role === 'admin' && (
+                        <button
+                            onClick={() => navigate('/admin/users')}
+                            className="btn-primary mobile-full"
+                            style={{ padding: '20px 48px', borderRadius: '20px', fontSize: '1.2rem', fontWeight: 900, background: 'white', color: '#0f172a', border: 'none', gap: '12px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)', marginTop: '2rem' }}
+                        >
+                            <Users size={24} /> Manage Team
+                        </button>
+                    )}
                 </div>
             </div>
 

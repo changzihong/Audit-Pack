@@ -27,6 +27,30 @@ export default function RequestDetail() {
     const [unauthorized, setUnauthorized] = useState(false);
     const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+    const [fileLinks, setFileLinks] = useState<Record<string, string>>({});
+
+    // Fetch signed URLs for private files
+    useEffect(() => {
+        const fetchSignedUrls = async () => {
+            if (request?.file_urls && request.file_urls.length > 0) {
+                const urls: Record<string, string> = {};
+                for (const path of request.file_urls) {
+                    const { data } = await supabase.storage
+                        .from('request-files')
+                        .createSignedUrl(path, 3600); // 1 hour expiry
+
+                    if (data?.signedUrl) {
+                        urls[path] = data.signedUrl;
+                    }
+                }
+                setFileLinks(urls);
+            }
+        };
+
+        if (request) {
+            fetchSignedUrls();
+        }
+    }, [request]);
 
     useEffect(() => {
         fetchData();
@@ -309,6 +333,96 @@ export default function RequestDetail() {
                                 {request.description}
                             </div>
                         </div>
+
+                        {/* Uploaded Documents Section */}
+                        <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '2rem', marginTop: '2rem' }}>
+                            <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#0f172a', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <FileText size={20} color="var(--primary)" /> Uploaded Documents
+                            </h3>
+                            {request.file_urls && request.file_urls.length > 0 ? (
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '1rem' }}>
+                                    {request.file_urls.map((filePath: string, index: number) => {
+                                        // Extract filename: userId/timestamp_originalname.ext
+                                        const fullFileName = filePath.split('/').pop() || 'file';
+                                        // Remove timestamp prefix
+                                        const displayName = fullFileName.includes('_')
+                                            ? fullFileName.substring(fullFileName.indexOf('_') + 1)
+                                            : fullFileName;
+                                        const fileExt = displayName.split('.').pop()?.toLowerCase();
+                                        const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(fileExt || '');
+
+                                        const signedUrl = fileLinks[filePath];
+
+                                        if (!signedUrl) return null; // Skip if URL not generated yet
+
+                                        return (
+                                            <div key={index} style={{
+                                                background: 'white',
+                                                border: '1.5px solid #f1f5f9',
+                                                borderRadius: '16px',
+                                                overflow: 'hidden',
+                                                transition: 'all 0.2s',
+                                                cursor: 'pointer'
+                                            }}
+                                                onClick={() => window.open(signedUrl, '_blank')}
+                                            >
+                                                {isImage ? (
+                                                    <img
+                                                        src={signedUrl}
+                                                        alt={displayName}
+                                                        style={{
+                                                            width: '100%',
+                                                            height: '150px',
+                                                            objectFit: 'cover'
+                                                        }}
+                                                    />
+                                                ) : (
+                                                    <div style={{
+                                                        height: '150px',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        background: '#f8fafc'
+                                                    }}>
+                                                        <FileText size={48} color="#94a3b8" />
+                                                    </div>
+                                                )}
+                                                <div style={{ padding: '0.75rem' }}>
+                                                    <p style={{
+                                                        margin: 0,
+                                                        fontSize: '0.8rem',
+                                                        fontWeight: 600,
+                                                        color: '#475569',
+                                                        overflow: 'hidden',
+                                                        textOverflow: 'ellipsis',
+                                                        whiteSpace: 'nowrap'
+                                                    }}
+                                                        title={displayName}
+                                                    >
+                                                        {displayName}
+                                                    </p>
+                                                    <p style={{
+                                                        margin: '4px 0 0 0',
+                                                        fontSize: '0.7rem',
+                                                        color: '#94a3b8',
+                                                        textTransform: 'uppercase'
+                                                    }}>
+                                                        {fileExt} file
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            ) : (
+                                <div style={{ background: '#f8fafc', border: '1px solid #f1f5f9', borderRadius: '16px', padding: '2rem', textAlign: 'center' }}>
+                                    <FileText size={40} color="#cbd5e1" style={{ margin: '0 auto 1rem' }} />
+                                    <p style={{ margin: 0, fontSize: '0.9rem', color: '#64748b', fontWeight: 600 }}>
+                                        No documents uploaded
+                                    </p>
+                                </div>
+                            )}
+                        </div>
                     </div>
 
                     {/* AI Insights */}
@@ -407,8 +521,39 @@ export default function RequestDetail() {
                     </div>
                     <div style={{ marginTop: '50px', background: '#f8fafc', padding: '20px' }}>
                         <h4 style={{ margin: 0 }}>AI SCORE: {request.ai_completeness_score}%</h4>
-                        <p style={{ fontSize: '12px' }}>{request.ai_summary}</p>
+                        <p style={{ fontSize: '12px', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{request.ai_summary}</p>
                     </div>
+
+                    {/* Attached Images for PDF */}
+                    {Object.keys(fileLinks).length > 0 && (
+                        <div style={{ marginTop: '40px' }}>
+                            <h4 style={{ borderBottom: '1px solid #000', paddingBottom: '5px', marginBottom: '15px' }}>ATTACHED DOCUMENTS</h4>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                                {request.file_urls?.map((filePath, index) => {
+                                    const signedUrl = fileLinks[filePath];
+                                    const isImage = filePath.match(/\.(jpg|jpeg|png|gif|webp)$/i);
+
+                                    if (isImage && signedUrl) {
+                                        return (
+                                            <div key={index} style={{ border: '1px solid #ddd', padding: '5px' }}>
+                                                <img
+                                                    src={signedUrl}
+                                                    alt="Evidence"
+                                                    style={{ width: '100%', height: '200px', objectFit: 'contain', background: '#f8fafc' }}
+                                                    // Ensure crossOrigin is set if needed for canvas tainting issues, though html2pdf handles it via useCORS: true
+                                                    crossOrigin="anonymous"
+                                                />
+                                                <p style={{ margin: '5px 0 0 0', fontSize: '10px', color: '#666', textAlign: 'center' }}>
+                                                    Document #{index + 1}
+                                                </p>
+                                            </div>
+                                        );
+                                    }
+                                    return null;
+                                })}
+                            </div>
+                        </div>
+                    )}
                     <div style={{ marginTop: '100px', textAlign: 'center', borderTop: '1px solid #000', paddingTop: '10px' }}>
                         <p style={{ fontSize: '10px' }}>STRICTLY CONFIDENTIAL • © 2025 AUDIT PACK MALAYSIA</p>
                     </div>

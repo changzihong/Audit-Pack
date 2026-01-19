@@ -8,6 +8,7 @@ import ProfilePage from './pages/ProfilePage';
 import ArchivePage from './pages/ArchivePage';
 import ManageUsers from './pages/ManageUsers';
 import RequestsPage from './pages/RequestsPage';
+import NotificationsPage from './pages/NotificationsPage';
 import Shell from './components/Shell';
 import { useEffect, useState } from 'react';
 import { supabase } from './lib/supabase';
@@ -52,7 +53,7 @@ function App() {
                     <Route path="/create" element={<CreateRequest />} />
                     <Route path="/request/:id" element={<RequestDetail />} />
                     <Route path="/profile" element={<ProfilePage />} />
-                    <Route path="/notifications" element={<div className="glass-card" style={{ padding: '3rem', textAlign: 'center' }}><h3>Notifications Center</h3><p style={{ color: '#64748b' }}>You are all caught up!</p></div>} />
+                    <Route path="/notifications" element={<NotificationsPage />} />
                 </Route>
             </Routes>
         </Router>

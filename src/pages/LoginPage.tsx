@@ -14,6 +14,7 @@ export default function LoginPage() {
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [fullName, setFullName] = useState('');
+    const [companyName, setCompanyName] = useState('');
     const [role, setRole] = useState('employee');
     const [department, setDepartment] = useState('Engineering');
     const [agreed, setAgreed] = useState(false);
@@ -66,16 +67,18 @@ export default function LoginPage() {
             if (isSignUp) {
                 if (password !== confirmPassword) throw new Error("Passwords don't match");
                 if (!agreed) throw new Error("Please agree to the Terms & Conditions");
-                if (!fullName) throw new Error("Please enter your full name");
+                if (!fullName.trim()) throw new Error("Please enter your full name");
+                if (!companyName.trim()) throw new Error("Please enter your company name");
 
                 const { error } = await supabase.auth.signUp({
-                    email,
+                    email: email.trim(),
                     password,
                     options: {
                         data: {
-                            full_name: fullName,
+                            full_name: fullName.trim(),
+                            company_name: companyName.trim(),
                             role: role,
-                            department: role === 'admin' ? 'General' : department,
+                            // Department will be set to NULL or General by default, user chooses later
                         }
                     }
                 });
@@ -229,6 +232,24 @@ export default function LoginPage() {
                         )}
                     </div>
 
+                    {isSignUp && !isForgotPassword && (
+                        <div className="input-group" style={{ marginBottom: 0 }}>
+                            <label className="input-label">Company Name</label>
+                            <div style={{ position: 'relative' }}>
+                                <Building2 size={18} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                                <input
+                                    type="text"
+                                    className="input-field"
+                                    placeholder="Acme Corp"
+                                    value={companyName}
+                                    onChange={(e) => setCompanyName(e.target.value)}
+                                    required
+                                    style={{ paddingLeft: '48px' }}
+                                />
+                            </div>
+                        </div>
+                    )}
+
                     <AnimatePresence mode="popLayout">
                         {isSignUp && !isForgotPassword && (
                             <motion.div
@@ -237,7 +258,7 @@ export default function LoginPage() {
                                 exit={{ opacity: 0, height: 0 }}
                                 style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', overflow: 'hidden' }}
                             >
-                                <div style={{ display: 'grid', gridTemplateColumns: role === 'admin' ? '1fr' : '1fr 1fr', gap: '1rem' }} className="mobile-grid-1">
+                                <div style={{ display: 'grid', gridTemplateColumns: role === 'admin' ? '1fr' : '1fr', gap: '1rem' }} className="mobile-grid-1">
                                     <div className="input-group" style={{ marginBottom: 0 }}>
                                         <label className="input-label">Role</label>
                                         <div style={{ position: 'relative' }}>
@@ -254,106 +275,92 @@ export default function LoginPage() {
                                             </select>
                                         </div>
                                     </div>
-                                    {role !== 'admin' && (
-                                        <div className="input-group" style={{ marginBottom: 0 }}>
-                                            <label className="input-label">Department</label>
-                                            <div style={{ position: 'relative' }}>
-                                                <Building size={18} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-                                                <select
-                                                    className="input-field"
-                                                    value={department}
-                                                    onChange={(e) => setDepartment(e.target.value)}
-                                                    style={{ paddingLeft: '48px' }}
-                                                >
-                                                    {departments.map((dept) => (
-                                                        <option key={dept} value={dept}>{dept}</option>
-                                                    ))}
-                                                </select>
-                                            </div>
-                                        </div>
-                                    )}
                                 </div>
                             </motion.div>
                         )}
                     </AnimatePresence>
 
-                    {!isForgotPassword && (
-                        <>
-                            <div className="input-group" style={{ marginBottom: 0 }}>
-                                <label className="input-label">Security Password</label>
-                                <div style={{ position: 'relative' }}>
-                                    <Lock size={18} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-                                    <input
-                                        type="password"
-                                        className="input-field"
-                                        placeholder="••••••••"
-                                        value={password}
-                                        onChange={(e) => setPassword(e.target.value)}
-                                        required
-                                        style={{ paddingLeft: '48px' }}
-                                    />
-                                </div>
-                            </div>
-
-                            {isSignUp && (
+                    {
+                        !isForgotPassword && (
+                            <>
                                 <div className="input-group" style={{ marginBottom: 0 }}>
-                                    <label className="input-label">Confirm Password</label>
+                                    <label className="input-label">Security Password</label>
                                     <div style={{ position: 'relative' }}>
                                         <Lock size={18} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
                                         <input
                                             type="password"
                                             className="input-field"
                                             placeholder="••••••••"
-                                            value={confirmPassword}
-                                            onChange={(e) => setConfirmPassword(e.target.value)}
+                                            value={password}
+                                            onChange={(e) => setPassword(e.target.value)}
                                             required
                                             style={{ paddingLeft: '48px' }}
                                         />
                                     </div>
                                 </div>
-                            )}
-                        </>
-                    )}
 
-                    {!isSignUp && !isForgotPassword ? (
-                        <button
-                            type="button"
-                            onClick={() => {
-                                setIsForgotPassword(true);
-                                setError(null);
-                                setSuccess(null);
-                            }}
-                            style={{ background: 'none', border: 'none', color: 'var(--primary)', fontWeight: 700, fontSize: '0.85rem', width: 'fit-content', cursor: 'pointer', padding: 0 }}
-                        >
-                            Forgot password?
-                        </button>
-                    ) : isForgotPassword ? (
-                        <button
-                            type="button"
-                            onClick={() => {
-                                setIsForgotPassword(false);
-                                setError(null);
-                                setSuccess(null);
-                            }}
-                            style={{ background: 'none', border: 'none', color: 'var(--primary)', fontWeight: 700, fontSize: '0.85rem', width: 'fit-content', cursor: 'pointer', padding: 0 }}
-                        >
-                            Back to login
-                        </button>
-                    ) : (
-                        <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', marginTop: '0.5rem' }}>
-                            <input
-                                type="checkbox"
-                                checked={agreed}
-                                onChange={(e) => setAgreed(e.target.checked)}
-                                style={{ marginTop: '4px', cursor: 'pointer', width: '18px', height: '18px' }}
-                            />
-                            <p style={{ margin: 0, fontSize: '0.85rem', color: '#64748b', lineHeight: 1.5 }}>
-                                I certify that the information provided is accurate and I agree to the <span
-                                    onClick={() => setShowTerms(true)}
-                                    style={{ color: 'var(--primary)', fontWeight: 700, cursor: 'pointer' }}>Corporate Audit Terms & conditions</span>.
-                            </p>
-                        </div>
-                    )}
+                                {isSignUp && (
+                                    <div className="input-group" style={{ marginBottom: 0 }}>
+                                        <label className="input-label">Confirm Password</label>
+                                        <div style={{ position: 'relative' }}>
+                                            <Lock size={18} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                                            <input
+                                                type="password"
+                                                className="input-field"
+                                                placeholder="••••••••"
+                                                value={confirmPassword}
+                                                onChange={(e) => setConfirmPassword(e.target.value)}
+                                                required
+                                                style={{ paddingLeft: '48px' }}
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+                            </>
+                        )
+                    }
+
+                    {
+                        !isSignUp && !isForgotPassword ? (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setIsForgotPassword(true);
+                                    setError(null);
+                                    setSuccess(null);
+                                }}
+                                style={{ background: 'none', border: 'none', color: 'var(--primary)', fontWeight: 700, fontSize: '0.85rem', width: 'fit-content', cursor: 'pointer', padding: 0 }}
+                            >
+                                Forgot password?
+                            </button>
+                        ) : isForgotPassword ? (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setIsForgotPassword(false);
+                                    setError(null);
+                                    setSuccess(null);
+                                }}
+                                style={{ background: 'none', border: 'none', color: 'var(--primary)', fontWeight: 700, fontSize: '0.85rem', width: 'fit-content', cursor: 'pointer', padding: 0 }}
+                            >
+                                Back to login
+                            </button>
+                        ) : (
+                            <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', marginTop: '0.5rem' }}>
+                                <input
+                                    type="checkbox"
+                                    checked={agreed}
+                                    onChange={(e) => setAgreed(e.target.checked)}
+                                    style={{ marginTop: '4px', cursor: 'pointer', width: '18px', height: '18px' }}
+                                />
+                                <p style={{ margin: 0, fontSize: '0.85rem', color: '#64748b', lineHeight: 1.5 }}>
+                                    I certify that the information provided is accurate and I agree to the <span
+                                        onClick={() => setShowTerms(true)}
+                                        style={{ color: 'var(--primary)', fontWeight: 700, cursor: 'pointer' }}>Corporate Audit Terms & conditions</span>.
+                                </p>
+                            </div>
+                        )
+                    }
 
                     <button
                         type="submit"
@@ -369,24 +376,26 @@ export default function LoginPage() {
                         )}
                     </button>
 
-                    {!isForgotPassword && (
-                        <p style={{ textAlign: 'center', margin: '1rem 0 0 0', color: '#64748b', fontWeight: 500 }}>
-                            {isSignUp ? 'Already authorized?' : "Don't have an enterprise account?"}{' '}
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setIsSignUp(!isSignUp);
-                                    setError(null);
-                                    setSuccess(null);
-                                }}
-                                style={{ background: 'none', border: 'none', color: 'var(--primary)', fontWeight: 750, cursor: 'pointer' }}
-                            >
-                                {isSignUp ? 'Login secure portal' : 'Sign up corporate'}
-                            </button>
-                        </p>
-                    )}
-                </form>
-            </motion.div>
+                    {
+                        !isForgotPassword && (
+                            <p style={{ textAlign: 'center', margin: '1rem 0 0 0', color: '#64748b', fontWeight: 500 }}>
+                                {isSignUp ? 'Already authorized?' : "Don't have an enterprise account?"}{' '}
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setIsSignUp(!isSignUp);
+                                        setError(null);
+                                        setSuccess(null);
+                                    }}
+                                    style={{ background: 'none', border: 'none', color: 'var(--primary)', fontWeight: 750, cursor: 'pointer' }}
+                                >
+                                    {isSignUp ? 'Login secure portal' : 'Sign up corporate'}
+                                </button>
+                            </p>
+                        )
+                    }
+                </form >
+            </motion.div >
             <AnimatePresence>
                 {showTerms && (
                     <motion.div
@@ -547,6 +556,6 @@ export default function LoginPage() {
                     }
                 }
             `}</style>
-        </div>
+        </div >
     );
 }
