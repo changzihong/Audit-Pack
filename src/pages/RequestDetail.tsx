@@ -12,6 +12,83 @@ import { sendEmailNotification } from '../lib/notifications';
 // @ts-ignore
 import html2pdf from 'html2pdf.js';
 
+interface ActionButtonProps {
+    onClick: () => void;
+    icon: any;
+    label: string;
+    description: string;
+    bg: string;
+    color: string;
+    loading: boolean;
+    disabled: boolean;
+}
+
+const ActionButton = ({ onClick, icon: Icon, label, description, bg, color, loading, disabled }: ActionButtonProps) => {
+    const [hovered, setHovered] = useState(false);
+
+    return (
+        <div style={{ position: 'relative' }} onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
+            <button
+                onClick={onClick}
+                disabled={disabled}
+                style={{
+                    width: '45px',
+                    height: '45px',
+                    borderRadius: '14px',
+                    background: bg,
+                    color: color,
+                    border: 'none',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: disabled ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.2s',
+                    transform: hovered && !disabled ? 'translateY(-2px)' : 'none',
+                    boxShadow: hovered && !disabled ? '0 4px 12px rgba(0,0,0,0.05)' : 'none'
+                }}
+            >
+                {loading ? <Loader2 className="animate-spin" size={22} /> : <Icon size={22} />}
+            </button>
+            <AnimatePresence>
+                {hovered && !disabled && (
+                    <motion.div
+                        initial={{ opacity: 0, y: 5, x: '-50%' }}
+                        animate={{ opacity: 1, y: 0, x: '-50%' }}
+                        exit={{ opacity: 0, y: 5, x: '-50%' }}
+                        transition={{ duration: 0.2 }}
+                        style={{
+                            position: 'absolute',
+                            bottom: 'calc(100% + 12px)',
+                            left: '50%',
+                            background: '#0f172a',
+                            color: 'white',
+                            padding: '8px 14px',
+                            borderRadius: '10px',
+                            zIndex: 50,
+                            pointerEvents: 'none',
+                            boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
+                            textAlign: 'center',
+                            minWidth: '120px'
+                        }}
+                    >
+                        <div style={{ fontSize: '0.85rem', fontWeight: 700, marginBottom: '2px' }}>{label}</div>
+                        <div style={{ fontSize: '0.7rem', opacity: 0.8, fontWeight: 500 }}>{description}</div>
+                        <div style={{
+                            position: 'absolute',
+                            top: '100%',
+                            left: '50%',
+                            marginLeft: '-5px',
+                            borderWidth: '5px',
+                            borderStyle: 'solid',
+                            borderColor: '#0f172a transparent transparent transparent'
+                        }} />
+                    </motion.div>
+                )}
+            </AnimatePresence>
+        </div>
+    );
+};
+
 export default function RequestDetail() {
     const { id } = useParams();
     const navigate = useNavigate();
@@ -254,41 +331,72 @@ export default function RequestDetail() {
 
             {/* SCREEN NAVIGATION */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2.5rem' }} className="mobile-stack mobile-gap-4">
-                <button
+                <ActionButton
                     onClick={() => navigate(-1)}
-                    style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#64748b', background: 'none', border: 'none', fontWeight: 600, cursor: 'pointer' }}
-                >
-                    <ArrowLeft size={18} /> Back
-                </button>
+                    icon={ArrowLeft}
+                    label="Go Back"
+                    description="Return to list"
+                    bg="#f1f5f9"
+                    color="#64748b"
+                    loading={false}
+                    disabled={false}
+                />
 
                 <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'flex-end' }} className="mobile-full">
-                    <button
+                    <ActionButton
                         onClick={handleDownloadPDF}
+                        icon={isGeneratingPDF ? Loader2 : Download}
+                        label="Download PDF"
+                        description="Save report"
+                        bg="#f8fafc"
+                        color="#0f172a"
+                        loading={isGeneratingPDF}
                         disabled={isGeneratingPDF}
-                        className="btn-secondary mobile-full"
-                        style={{ padding: '10px 20px', borderRadius: '12px', background: 'white', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, justifyContent: 'center' }}
-                    >
-                        {isGeneratingPDF ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
-                        <span className="mobile-hide">{isGeneratingPDF ? 'Generating...' : 'Download PDF'}</span>
-                        <span className="mobile-show">PDF</span>
-                    </button>
+                    />
                     {isOwner && request.status === 'changes_requested' && (
-                        <button onClick={() => navigate(`/create?id=${request.id}`)} className="btn-primary mobile-full" style={{ padding: '10px 20px', borderRadius: '12px' }}>
-                            <Edit3 size={18} /> Edit
-                        </button>
+                        <ActionButton
+                            onClick={() => navigate(`/create?id=${request.id}`)}
+                            icon={Edit3}
+                            label="Edit Request"
+                            description="Modify submission"
+                            bg="#fdf4ff"
+                            color="#d946ef"
+                            loading={false}
+                            disabled={false}
+                        />
                     )}
                     {canAction && request.status === 'pending' && (
                         <div style={{ display: 'flex', gap: '0.5rem' }} className="mobile-full">
-                            <button onClick={() => handleAction('changes_requested')} disabled={!!actionLoading} className="btn-action-change mobile-full" style={{ padding: '10px 18px', borderRadius: '12px', background: '#eff6ff', color: '#1d4ed8', border: '1px solid #dbeafe', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                {actionLoading === 'changes_requested' ? <Loader2 className="animate-spin" size={18} /> : <AlertTriangle size={18} />}
-                                {actionLoading === 'changes_requested' ? '' : 'Request Changes'}
-                            </button>
-                            <button onClick={() => handleAction('rejected')} disabled={!!actionLoading} className="btn-action-reject mobile-full" style={{ padding: '10px 18px', borderRadius: '12px' }}>
-                                {actionLoading === 'rejected' ? <Loader2 className="animate-spin" size={18} /> : 'Reject'}
-                            </button>
-                            <button onClick={() => handleAction('approved')} disabled={!!actionLoading} className="btn-action-approve mobile-full" style={{ padding: '10px 18px', borderRadius: '12px' }}>
-                                {actionLoading === 'approved' ? <Loader2 className="animate-spin" size={18} /> : 'Approve'}
-                            </button>
+                            <ActionButton
+                                onClick={() => handleAction('changes_requested')}
+                                icon={AlertTriangle}
+                                label="Request Changes"
+                                description="Return for revisions"
+                                bg="#eff6ff"
+                                color="#2563eb"
+                                loading={actionLoading === 'changes_requested'}
+                                disabled={!!actionLoading}
+                            />
+                            <ActionButton
+                                onClick={() => handleAction('rejected')}
+                                icon={XCircle}
+                                label="Reject Request"
+                                description="Decline this audit"
+                                bg="#fef2f2"
+                                color="#dc2626"
+                                loading={actionLoading === 'rejected'}
+                                disabled={!!actionLoading}
+                            />
+                            <ActionButton
+                                onClick={() => handleAction('approved')}
+                                icon={CheckCircle2}
+                                label="Approve Request"
+                                description="Authorize this audit"
+                                bg="#ecfdf5"
+                                color="#059669"
+                                loading={actionLoading === 'approved'}
+                                disabled={!!actionLoading}
+                            />
                         </div>
                     )}
                     {isAdmin && (
@@ -626,6 +734,6 @@ export default function RequestDetail() {
                 .loader-ring { width: 48px; height: 48px; border: 4px solid #f3f3f3; border-top: 4px solid #2563eb; border-radius: 50%; animation: spin 1s linear infinite; }
                 @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
             `}</style>
-        </div>
+        </div >
     );
 }
