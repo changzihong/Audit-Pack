@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import {
     Mail, Lock, ShieldCheck, ArrowRight, User, Building2,
-    CheckCircle2, Loader2, Sparkles, Building, X
+    CheckCircle2, Loader2, Sparkles, Building, X, Eye, EyeOff
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -13,6 +13,7 @@ export default function LoginPage() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
     const [fullName, setFullName] = useState('');
     const [companyName, setCompanyName] = useState('');
     const [role, setRole] = useState('employee');
@@ -85,11 +86,21 @@ export default function LoginPage() {
                 if (error) throw error;
                 if (error) throw error;
                 setShowSuccessModal(true);
-                // setIsSignUp(false); // Moved to modal action
             } else {
-                const { error } = await supabase.auth.signInWithPassword({ email, password });
+                const { data: { user }, error } = await supabase.auth.signInWithPassword({ email, password });
                 if (error) throw error;
-                navigate('/dashboard');
+
+                // Check role for redirect
+                if (user) {
+                    const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
+                    if (profile?.role === 'admin') {
+                        navigate('/profile');
+                    } else {
+                        navigate('/dashboard');
+                    }
+                } else {
+                    navigate('/dashboard');
+                }
             }
         } catch (err: any) {
             setError(err.message);
@@ -288,14 +299,33 @@ export default function LoginPage() {
                                     <div style={{ position: 'relative' }}>
                                         <Lock size={18} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
                                         <input
-                                            type="password"
+                                            type={showPassword ? 'text' : 'password'}
                                             className="input-field"
                                             placeholder="••••••••"
                                             value={password}
                                             onChange={(e) => setPassword(e.target.value)}
                                             required
-                                            style={{ paddingLeft: '48px' }}
+                                            style={{ paddingLeft: '48px', paddingRight: '48px' }}
                                         />
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowPassword(!showPassword)}
+                                            style={{
+                                                position: 'absolute',
+                                                right: '16px',
+                                                top: '50%',
+                                                transform: 'translateY(-50%)',
+                                                background: 'none',
+                                                border: 'none',
+                                                color: '#94a3b8',
+                                                cursor: 'pointer',
+                                                padding: 0,
+                                                display: 'flex',
+                                                alignItems: 'center'
+                                            }}
+                                        >
+                                            {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                                        </button>
                                     </div>
                                 </div>
 
@@ -305,14 +335,33 @@ export default function LoginPage() {
                                         <div style={{ position: 'relative' }}>
                                             <Lock size={18} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
                                             <input
-                                                type="password"
+                                                type={showPassword ? 'text' : 'password'}
                                                 className="input-field"
                                                 placeholder="••••••••"
                                                 value={confirmPassword}
                                                 onChange={(e) => setConfirmPassword(e.target.value)}
                                                 required
-                                                style={{ paddingLeft: '48px' }}
+                                                style={{ paddingLeft: '48px', paddingRight: '48px' }}
                                             />
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowPassword(!showPassword)}
+                                                style={{
+                                                    position: 'absolute',
+                                                    right: '16px',
+                                                    top: '50%',
+                                                    transform: 'translateY(-50%)',
+                                                    background: 'none',
+                                                    border: 'none',
+                                                    color: '#94a3b8',
+                                                    cursor: 'pointer',
+                                                    padding: 0,
+                                                    display: 'flex',
+                                                    alignItems: 'center'
+                                                }}
+                                            >
+                                                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                                            </button>
                                         </div>
                                     </div>
                                 )}
