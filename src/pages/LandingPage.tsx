@@ -44,14 +44,14 @@ export default function LandingPage() {
                             background: 'linear-gradient(135deg, #2563eb, #6366f1)',
                             WebkitBackgroundClip: 'text',
                             WebkitTextFillColor: 'transparent'
-                        }}>for Coperate Businesses</span>
+                        }}>for Coperate</span>
                     </h1>
                     <p style={{ fontSize: '1.25rem', color: '#64748b', maxWidth: '800px', margin: '0 auto 3rem', lineHeight: 1.6 }} className="mobile-p-sm">
                         The all-in-one internal approval system that uses AI to auto-validate requests, verify documentation, and ensures your team submits perfect audits every time.
                     </p>
                     <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }} className="mobile-stack">
                         <Link to="/login" className="btn-primary mobile-full" style={{ padding: '16px 40px', fontSize: '1.125rem' }}>
-                            Get Stared <ArrowRight size={20} />
+                            Get Started <ArrowRight size={20} />
                         </Link>
                     </div>
                 </motion.div>
